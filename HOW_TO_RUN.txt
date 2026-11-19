@@ -1,0 +1,8 @@
+=== OriginFlipWallpaper - VS Code se direct phone mein run karne ke steps ===
+
+1. Is ZIP ko extract karo aur 'OriginFlipWallpaper' folder ko VS Code mein open karo.
+2. 'local.properties' file kholo aur YOUR_USERNAME ki jagah apna Windows username daal do.
+3. Apne purane Android Studio project se 'gradle' folder, 'gradlew', aur 'gradlew.bat' copy karke is folder ke andar paste kar do.
+4. Phone mein USB Debugging ON karke USB cable se connect karo.
+5. VS Code Terminal (Ctrl + ~) kholo aur ye command chalao:
+   .\gradlew.bat installDebug
