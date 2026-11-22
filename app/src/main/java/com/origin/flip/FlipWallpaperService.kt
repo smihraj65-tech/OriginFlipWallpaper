@@ -9,11 +9,20 @@ import android.hardware.SensorManager
 import android.os.Handler
 import android.os.Looper
 import android.service.wallpaper.WallpaperService
+import android.view.SurfaceHolder
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.Executors
 import kotlin.math.floor
 
 class FlipWallpaperService : WallpaperService() {
+
+    companion object {
+        @Volatile var cachedBitmaps = mutableListOf<Bitmap>()
+        @Volatile var cachedDepths = mutableListOf<Bitmap?>()
+        @Volatile var cachedTimestamp = 0L
+    }
 
     override fun onCreateEngine(): Engine = FlipEngine()
 
@@ -34,8 +43,13 @@ class FlipWallpaperService : WallpaperService() {
         }
 
         private val handler = Handler(Looper.getMainLooper())
+        private val bgLoadExecutor = Executors.newSingleThreadExecutor()
+        @Volatile private var isLoadingBackground = false
+
         private var isVisible = false
         private val bitmaps = mutableListOf<Bitmap>()
+        private val depthCutouts = mutableListOf<Bitmap?>()
+        private var fallbackBitmap: Bitmap? = null
 
         private var centerRoll: Float? = null
         private var targetProgress = 0f
@@ -43,6 +57,7 @@ class FlipWallpaperService : WallpaperService() {
         private var lastSensorTimeMs = 0L
 
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        private val depthPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         private val glossPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val srcRect = Rect()
         private val dstRect = RectF()
@@ -60,12 +75,20 @@ class FlipWallpaperService : WallpaperService() {
             }
         }
 
+        override fun onSurfaceCreated(holder: SurfaceHolder) {
+            super.onSurfaceCreated(holder)
+            loadImagesFast()
+            drawFrame() // Instant draw on creation
+        }
+
         override fun onVisibilityChanged(visible: Boolean) {
             isVisible = visible
             if (visible) {
                 centerRoll = null
-                loadImages()
+                loadImagesFast()
                 registerBestSensor()
+                drawFrame() // Draw instantly before loop starts
+                handler.removeCallbacks(drawRunnable)
                 handler.post(drawRunnable)
             } else {
                 sensorManager.unregisterListener(this)
@@ -90,7 +113,6 @@ class FlipWallpaperService : WallpaperService() {
         ) {
             super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset)
             if (bitmaps.size < 2) return
-            // If sensor hasn't fired recently (e.g., restricted/missing sensor), allow home screen swipe offset to drive transition
             val now = System.currentTimeMillis()
             if (now - lastSensorTimeMs > 800L && xOffset in 0f..1f) {
                 val maxIdx = (bitmaps.size - 1).toFloat()
@@ -102,20 +124,139 @@ class FlipWallpaperService : WallpaperService() {
             super.onDestroy()
             sensorManager.unregisterListener(this)
             handler.removeCallbacks(drawRunnable)
-            bitmaps.forEach { it.recycle() }
+            // Don't recycle static cache so next open is instant
             bitmaps.clear()
+            depthCutouts.clear()
+            fallbackBitmap?.recycle()
+            fallbackBitmap = null
         }
 
-        private fun loadImages() {
-            bitmaps.forEach { it.recycle() }
-            bitmaps.clear()
+        private fun ensureFallbackBitmap(w: Int, h: Int): Bitmap {
+            val existing = fallbackBitmap
+            if (existing != null && existing.width == w.coerceAtLeast(1) && existing.height == h.coerceAtLeast(1)) {
+                return existing
+            }
+            existing?.recycle()
+            val bw = w.coerceAtLeast(360)
+            val bh = h.coerceAtLeast(640)
+            val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            val c = Canvas(bmp)
+            val p = Paint(Paint.ANTI_ALIAS_FLAG)
 
-            val files = filesDir.listFiles()
+            p.shader = LinearGradient(
+                0f, 0f, bw.toFloat(), bh.toFloat(),
+                intArrayOf(
+                    Color.parseColor("#0B1026"),
+                    Color.parseColor("#1D2B64"),
+                    Color.parseColor("#1565C0"),
+                    Color.parseColor("#0A1A2F")
+                ),
+                floatArrayOf(0f, 0.35f, 0.72f, 1f),
+                Shader.TileMode.CLAMP
+            )
+            c.drawRect(0f, 0f, bw.toFloat(), bh.toFloat(), p)
+            p.shader = null
+
+            p.color = Color.argb(42, 255, 255, 255)
+            c.drawCircle(bw * 0.75f, bh * 0.25f, bw * 0.42f, p)
+            p.color = Color.argb(28, 41, 182, 246)
+            c.drawCircle(bw * 0.22f, bh * 0.72f, bw * 0.48f, p)
+
+            fallbackBitmap = bmp
+            return bmp
+        }
+
+        private fun getWallpaperFiles(): List<File> {
+            var files = filesDir.listFiles()
                 ?.filter { it.name.startsWith("wp_") && it.name.endsWith(".jpg") }
                 ?.sortedBy { it.name } ?: emptyList()
 
-            for (file in files) {
-                BitmapFactory.decodeFile(file.absolutePath)?.let { bitmaps.add(it) }
+            if (files.isEmpty()) {
+                val backup = File(filesDir, "cards_backup")
+                files = backup.listFiles()
+                    ?.filter { it.name.startsWith("card_") && it.name.endsWith(".jpg") }
+                    ?.sortedBy { it.name } ?: emptyList()
+            }
+            return files
+        }
+
+        // ULTRA-FAST LOAD: ZERO BLACK SCREEN
+        private fun loadImagesFast() {
+            val files = getWallpaperFiles()
+            if (files.isEmpty()) return
+
+            val latestTime = files.maxOfOrNull { it.lastModified() } ?: 0L
+
+            // 1. Agar pehle se memory cache me hai to 0 millisecond me use karo
+            if (cachedBitmaps.isNotEmpty() && cachedTimestamp == latestTime && cachedBitmaps.size == files.size) {
+                if (bitmaps.isEmpty() || bitmaps.size != cachedBitmaps.size) {
+                    bitmaps.clear()
+                    bitmaps.addAll(cachedBitmaps)
+                    depthCutouts.clear()
+                    depthCutouts.addAll(cachedDepths)
+                }
+                return
+            }
+
+            val rgb565Opts = BitmapFactory.Options().apply {
+                inPreferredConfig = Bitmap.Config.RGB_565
+            }
+
+            // 2. Pehli photo turant decode karke screen par dikhao (NO BLACK SCREEN)
+            if (bitmaps.isEmpty() || cachedTimestamp != latestTime) {
+                bitmaps.clear()
+                depthCutouts.clear()
+                val bmp0 = BitmapFactory.decodeFile(files[0].absolutePath, rgb565Opts)
+                if (bmp0 != null) {
+                    bitmaps.add(bmp0)
+                    val d0 = File(filesDir, "depth_0.png")
+                    val dBmp0 = if (d0.exists()) BitmapFactory.decodeFile(d0.absolutePath) else null
+                    depthCutouts.add(dBmp0)
+                }
+            }
+
+            // 3. Baaki photos background thread me load hongi taaki screen freeze na ho
+            if (files.size > 1 && !isLoadingBackground) {
+                isLoadingBackground = true
+                bgLoadExecutor.execute {
+                    try {
+                        val restBitmaps = mutableListOf<Bitmap>()
+                        val restDepths = mutableListOf<Bitmap?>()
+
+                        val firstBmp = bitmaps.firstOrNull() ?: BitmapFactory.decodeFile(files[0].absolutePath, rgb565Opts)
+                        restBitmaps.add(firstBmp)
+                        val d0 = File(filesDir, "depth_0.png")
+                        val dBmp0 = if (d0.exists()) BitmapFactory.decodeFile(d0.absolutePath) else null
+                        restDepths.add(dBmp0)
+
+                        for (i in 1 until files.size) {
+                            val bmp = BitmapFactory.decodeFile(files[i].absolutePath, rgb565Opts)
+                            if (bmp != null) {
+                                restBitmaps.add(bmp)
+                                val dFile = File(filesDir, "depth_$i.png")
+                                val dBmp = if (dFile.exists()) BitmapFactory.decodeFile(dFile.absolutePath) else null
+                                restDepths.add(dBmp)
+                            }
+                        }
+
+                        handler.post {
+                            bitmaps.clear()
+                            bitmaps.addAll(restBitmaps)
+                            depthCutouts.clear()
+                            depthCutouts.addAll(restDepths)
+
+                            cachedBitmaps.clear()
+                            cachedBitmaps.addAll(restBitmaps)
+                            cachedDepths.clear()
+                            cachedDepths.addAll(restDepths)
+                            cachedTimestamp = latestTime
+
+                            isLoadingBackground = false
+                        }
+                    } catch (_: Exception) {
+                        isLoadingBackground = false
+                    }
+                }
             }
         }
 
@@ -135,12 +276,10 @@ class FlipWallpaperService : WallpaperService() {
                     range = 14f
                 }
                 Sensor.TYPE_GRAVITY -> {
-                    // X-axis gravity gives smooth left/right tilt even without gyroscope
                     rollSignal = event.values[0]
                     range = 3.5f
                 }
                 else -> {
-                    // TYPE_ACCELEROMETER fallback for phones like Redmi 10 without gyroscope
                     rollSignal = event.values[0]
                     range = 3.5f
                 }
@@ -170,31 +309,65 @@ class FlipWallpaperService : WallpaperService() {
                 val h = canvas.height
                 fullScreenRect.set(0f, 0f, w.toFloat(), h.toFloat())
 
-                if (bitmaps.isEmpty()) {
-                    canvas.drawColor(Color.BLACK)
+                val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
+                val isPaused = prefs.getBoolean("wallpaper_paused", false)
+
+                if (bitmaps.isEmpty() || isPaused) {
+                    val fallback = ensureFallbackBitmap(w, h)
+                    paint.alpha = 255
+                    canvas.drawBitmap(fallback, null, fullScreenRect, paint)
+                    if (!isPaused && prefs.getBoolean("clock_enabled", false)) {
+                        val fallbackAdaptive = prefs.getInt("adaptive_clock_color", Color.WHITE)
+                        ClockDrawer.drawClock(canvas, prefs, w.toFloat(), h.toFloat(), fallbackAdaptive)
+                    }
                     return
                 }
+
+                val adaptiveColors = parseAdaptiveColors(prefs)
+                val activeIndex: Int
+                val nextIndex: Int
+                val fraction: Float
+
                 if (bitmaps.size == 1) {
+                    activeIndex = 0
+                    nextIndex = 0
+                    fraction = 0f
                     paint.alpha = 255
                     canvas.drawBitmap(bitmaps[0], null, fullScreenRect, paint)
                 } else {
                     smoothProgress += 0.20f * (targetProgress - smoothProgress)
-
                     val maxIndex = bitmaps.size - 1
                     val clamped = smoothProgress.coerceIn(0f, maxIndex.toFloat())
-                    val index = floor(clamped).toInt().coerceAtMost(maxIndex - 1)
-                    val fraction = clamped - index
+                    activeIndex = floor(clamped).toInt().coerceAtMost(maxIndex - 1)
+                    nextIndex = activeIndex + 1
+                    fraction = clamped - activeIndex
 
-                    val bmpA = bitmaps[index]
-                    val bmpB = bitmaps[index + 1]
-
-                    drawOriginSoftBlend(canvas, bmpA, bmpB, fraction, w, h)
+                    drawOriginSoftBlend(canvas, bitmaps[activeIndex], bitmaps[nextIndex], fraction, w, h)
                     drawLightSheen(canvas, fraction)
                 }
 
-                val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
+                val colA = adaptiveColors.getOrElse(activeIndex) {
+                    prefs.getInt("adaptive_clock_color", Color.WHITE)
+                }
+                val colB = adaptiveColors.getOrElse(nextIndex) { colA }
+                val blendedAdaptiveColor = blendColors(colA, colB, fraction)
+
                 if (prefs.getBoolean("clock_enabled", false)) {
-                    ClockDrawer.drawClock(canvas, prefs, w.toFloat(), h.toFloat())
+                    ClockDrawer.drawClock(canvas, prefs, w.toFloat(), h.toFloat(), blendedAdaptiveColor)
+                }
+
+                if (prefs.getBoolean("depth_effect_enabled", false)) {
+                    val fgA = depthCutouts.getOrNull(activeIndex)
+                    val fgB = depthCutouts.getOrNull(nextIndex)
+                    if (fgA != null) {
+                        depthPaint.alpha = ((1f - fraction) * 255f).toInt().coerceIn(0, 255)
+                        canvas.drawBitmap(fgA, null, fullScreenRect, depthPaint)
+                    }
+                    if (fgB != null && fraction > 0.01f) {
+                        depthPaint.alpha = (fraction * 255f).toInt().coerceIn(0, 255)
+                        canvas.drawBitmap(fgB, null, fullScreenRect, depthPaint)
+                    }
+                    depthPaint.alpha = 255
                 }
 
             } finally {
@@ -202,6 +375,21 @@ class FlipWallpaperService : WallpaperService() {
                     holder.unlockCanvasAndPost(canvas)
                 }
             }
+        }
+
+        private fun parseAdaptiveColors(prefs: android.content.SharedPreferences): List<Int> {
+            val raw = prefs.getString("adaptive_colors_csv", "") ?: ""
+            if (raw.isBlank()) return emptyList()
+            return raw.split(",").mapNotNull { it.trim().toIntOrNull() }
+        }
+
+        private fun blendColors(c1: Int, c2: Int, t: Float): Int {
+            val inv = 1f - t
+            val a = (Color.alpha(c1) * inv + Color.alpha(c2) * t).toInt().coerceIn(0, 255)
+            val r = (Color.red(c1) * inv + Color.red(c2) * t).toInt().coerceIn(0, 255)
+            val g = (Color.green(c1) * inv + Color.green(c2) * t).toInt().coerceIn(0, 255)
+            val b = (Color.blue(c1) * inv + Color.blue(c2) * t).toInt().coerceIn(0, 255)
+            return Color.argb(a, r, g, b)
         }
 
         private fun drawOriginSoftBlend(
@@ -267,111 +455,129 @@ class FlipWallpaperService : WallpaperService() {
 
 object ClockDrawer {
 
+    const val COLOR_ADAPTIVE = -2
+    const val COLOR_CUSTOM_WHEEL = -3
+
     private val timePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val datePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    fun resolveTypeface(fontIndex: Int, weight: Float): Typeface {
+        val wClamped = weight.coerceIn(0.25f, 1.0f)
+        val isBold = wClamped >= 0.58f
+        return when (fontIndex) {
+            0 -> Typeface.create(if (isBold) "sans-serif-condensed" else "sans-serif", if (isBold) Typeface.BOLD else Typeface.NORMAL)
+            1 -> Typeface.create(if (wClamped < 0.45f) "sans-serif-thin" else "sans-serif-light", Typeface.NORMAL)
+            2 -> Typeface.create(if (wClamped >= 0.85f) "sans-serif-black" else "sans-serif", if (isBold) Typeface.BOLD else Typeface.NORMAL)
+            3 -> Typeface.create(Typeface.SERIF, if (isBold) Typeface.BOLD else Typeface.NORMAL)
+            4 -> Typeface.create("sans-serif-condensed", if (wClamped >= 0.7f) Typeface.BOLD else Typeface.NORMAL)
+            else -> Typeface.create("sans-serif-medium", if (isBold) Typeface.BOLD else Typeface.NORMAL)
+        }
+    }
 
     fun drawClock(
         canvas: Canvas,
         prefs: android.content.SharedPreferences,
         w: Float,
-        h: Float
+        h: Float,
+        overrideAdaptiveColor: Int? = null
     ) {
         val mode = prefs.getInt("clock_mode", 0)
-        val style = prefs.getInt("clock_style", 0)
-        val font = prefs.getInt("clock_font", 0)
-        val sizeScale = prefs.getFloat("clock_size", 1.0f)
-        val colorVal = prefs.getInt("clock_color", Color.parseColor("#5C76B8"))
+        val style = prefs.getInt("clock_style", 0).coerceIn(0, if (mode == 0) 3 else 2)
+        val font = prefs.getInt("clock_font", 0).coerceIn(0, 5)
+        val sizeScale = if (mode == 1) {
+            prefs.getFloat("clock_custom_size", 1.35f).coerceIn(0.75f, 2.45f)
+        } else {
+            1.0f
+        }
+        val weight = prefs.getFloat("clock_weight", 0.72f).coerceIn(0.25f, 1.0f)
+        val colorVal = prefs.getInt("clock_color", COLOR_ADAPTIVE)
+        val adaptiveCol = overrideAdaptiveColor ?: prefs.getInt("adaptive_clock_color", Color.WHITE)
+        val offsetX = if (mode == 1 && style >= 1) prefs.getFloat("clock_offset_x", 0f) else 0f
+        val offsetY = if (mode == 1 && style >= 1) prefs.getFloat("clock_offset_y", 0f) else 0f
 
         val now = Calendar.getInstance().time
-        val hh = SimpleDateFormat("h", Locale.getDefault()).format(now)
-        val mm = SimpleDateFormat("mm", Locale.getDefault()).format(now)
-        val timeStr = "$hh:$mm"
+        val hhRaw = SimpleDateFormat("h", Locale.getDefault()).format(now)
+        val hhPadded = hhRaw.padStart(2, '0')
+        val mmPadded = SimpleDateFormat("mm", Locale.getDefault()).format(now).padStart(2, '0')
+        val timeStr = "$hhRaw:$mmPadded"
         val dateStr = SimpleDateFormat("EEE, MMM dd", Locale.getDefault()).format(now)
         val shortDate = SimpleDateFormat("MM/dd", Locale.getDefault()).format(now)
         val dayStr = SimpleDateFormat("EEE", Locale.getDefault()).format(now)
 
+        val baseColor = when (colorVal) {
+            COLOR_ADAPTIVE -> adaptiveCol
+            else -> colorVal
+        }
+
+        val glassAlpha = if (mode == 1) {
+            (150 + (weight * 65)).toInt().coerceIn(145, 220)
+        } else {
+            (185 + (weight * 50)).toInt().coerceIn(180, 238)
+        }
+        val glassColor = Color.argb(
+            glassAlpha,
+            Color.red(baseColor),
+            Color.green(baseColor),
+            Color.blue(baseColor)
+        )
+
         timePaint.reset()
         timePaint.isAntiAlias = true
-        timePaint.setShadowLayer(6f, 0f, 2f, Color.argb(85, 0, 0, 0))
+        timePaint.color = glassColor
+        timePaint.typeface = resolveTypeface(font, weight)
+        timePaint.setShadowLayer(8f, 0f, 3f, Color.argb(75, 255, 255, 255))
+
+        if (weight < 0.42f || font == 4) {
+            timePaint.style = Paint.Style.STROKE
+            timePaint.strokeWidth = (w * (0.003f + (1f - weight) * 0.011f)).coerceAtLeast(1.5f)
+        } else {
+            timePaint.style = Paint.Style.FILL
+            timePaint.strokeWidth = 0f
+        }
 
         datePaint.reset()
         datePaint.isAntiAlias = true
-        datePaint.setShadowLayer(5f, 0f, 2f, Color.argb(85, 0, 0, 0))
-
-        if (mode == 0) {
-            timePaint.textScaleX = if (font == 0) 0.72f else 1.0f
-            when (font) {
-                0 -> timePaint.typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-                1 -> timePaint.typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
-                2 -> timePaint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                3 -> timePaint.typeface = Typeface.SERIF
-                4 -> {
-                    timePaint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
-                    timePaint.style = Paint.Style.STROKE
-                    timePaint.strokeWidth = w * 0.008f
-                }
-            }
-        } else {
-            timePaint.textScaleX = 0.62f
-            when (font) {
-                0 -> timePaint.typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
-                else -> timePaint.typeface = Typeface.create(Typeface.SERIF, Typeface.BOLD)
-            }
-        }
+        datePaint.color = Color.argb(
+            (glassAlpha * 0.92f).toInt().coerceIn(135, 225),
+            Color.red(baseColor),
+            Color.green(baseColor),
+            Color.blue(baseColor)
+        )
         datePaint.typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        datePaint.setShadowLayer(5f, 0f, 2f, Color.argb(65, 0, 0, 0))
 
-        if (colorVal == -1) {
-            val grad = LinearGradient(
-                w * 0.15f, h * 0.1f, w * 0.85f, h * 0.35f,
-                intArrayOf(
-                    Color.parseColor("#FF6B6B"),
-                    Color.parseColor("#FFD93D"),
-                    Color.parseColor("#6BCB77"),
-                    Color.parseColor("#4D96FF"),
-                    Color.parseColor("#C780FA")
-                ),
-                null,
-                Shader.TileMode.CLAMP
-            )
-            timePaint.shader = grad
-            datePaint.color = Color.WHITE
-        } else {
-            timePaint.shader = null
-            timePaint.color = colorVal
-            datePaint.color = colorVal
-        }
-
-        val cx = w * 0.5f
-        val topY = h * 0.165f
+        val cx = (w * (0.5f + offsetX)).coerceIn(w * 0.15f, w * 0.85f)
+        val topY = (h * (0.155f + offsetY)).coerceIn(h * 0.08f, h * 0.65f)
 
         if (mode == 0) {
             datePaint.textSize = w * 0.042f
-            val baseTimeSize = w * 0.185f * sizeScale
+            val baseTimeSize = w * 0.185f
             timePaint.textSize = baseTimeSize
+            timePaint.textScaleX = if (font == 0) 0.76f else 0.96f
 
             when (style) {
                 0 -> {
                     datePaint.textAlign = Paint.Align.CENTER
                     timePaint.textAlign = Paint.Align.CENTER
                     canvas.drawText(dateStr, cx, topY, datePaint)
-                    canvas.drawText(timeStr, cx, topY + baseTimeSize * 0.94f, timePaint)
+                    canvas.drawText(timeStr, cx, topY + baseTimeSize * 0.92f, timePaint)
                 }
                 1 -> {
                     datePaint.textAlign = Paint.Align.CENTER
                     timePaint.textAlign = Paint.Align.CENTER
                     canvas.drawText(dateStr, cx, topY, datePaint)
-                    canvas.drawText(hh, cx, topY + baseTimeSize * 0.92f, timePaint)
-                    canvas.drawText(mm, cx, topY + baseTimeSize * 1.78f, timePaint)
+                    canvas.drawText(hhPadded, cx, topY + baseTimeSize * 0.86f, timePaint)
+                    canvas.drawText(mmPadded, cx, topY + baseTimeSize * 1.56f, timePaint)
                 }
                 2 -> {
                     val leftX = w * 0.10f
                     datePaint.textAlign = Paint.Align.LEFT
                     timePaint.textAlign = Paint.Align.LEFT
                     canvas.drawText(dateStr, leftX, topY, datePaint)
-                    canvas.drawText(timeStr, leftX, topY + baseTimeSize * 0.94f, timePaint)
+                    canvas.drawText(timeStr, leftX, topY + baseTimeSize * 0.92f, timePaint)
                 }
                 else -> {
-                    val smallTime = w * 0.135f * sizeScale
+                    val smallTime = w * 0.135f
                     timePaint.textSize = smallTime
                     timePaint.textAlign = Paint.Align.LEFT
                     datePaint.textAlign = Paint.Align.RIGHT
@@ -380,35 +586,37 @@ object ClockDrawer {
                 }
             }
         } else {
-            datePaint.textSize = w * 0.045f
-            datePaint.textAlign = Paint.Align.CENTER
+            datePaint.textSize = (w * 0.044f * (0.85f + sizeScale * 0.12f)).coerceAtMost(w * 0.075f)
+            timePaint.textScaleX = if (font == 0 || font == 4) 0.60f else 0.74f
 
             when (style) {
                 0 -> {
-                    val bigSize = w * 0.34f
+                    val bigSize = w * 0.30f * sizeScale
                     timePaint.textSize = bigSize
                     timePaint.textAlign = Paint.Align.CENTER
+                    datePaint.textAlign = Paint.Align.CENTER
                     canvas.drawText(dateStr, cx, topY, datePaint)
-                    canvas.drawText(timeStr, cx, topY + bigSize * 0.92f, timePaint)
+                    canvas.drawText(timeStr, cx, topY + bigSize * 0.88f, timePaint)
                 }
                 1 -> {
-                    val bigSize = w * 0.28f
+                    val bigSize = w * 0.24f * sizeScale
                     timePaint.textSize = bigSize
                     timePaint.textAlign = Paint.Align.CENTER
+                    datePaint.textAlign = Paint.Align.CENTER
                     canvas.drawText(dateStr, cx, topY, datePaint)
-                    canvas.drawText(hh, cx, topY + bigSize * 0.90f, timePaint)
-                    canvas.drawText(mm, cx, topY + bigSize * 1.72f, timePaint)
+                    canvas.drawText(hhPadded, cx, topY + bigSize * 0.82f, timePaint)
+                    canvas.drawText(mmPadded, cx, topY + bigSize * 1.50f, timePaint)
                 }
                 else -> {
-                    val bigSize = w * 0.27f
+                    val bigSize = w * 0.23f * sizeScale
                     timePaint.textSize = bigSize
                     timePaint.textAlign = Paint.Align.CENTER
                     datePaint.textAlign = Paint.Align.LEFT
-                    canvas.drawText("$shortDate $dayStr", w * 0.28f, topY, datePaint)
-                    canvas.drawText(hh[0].toString(), cx - w * 0.11f, topY + bigSize * 0.95f, timePaint)
-                    canvas.drawText(hh[1].toString(), cx + w * 0.11f, topY + bigSize * 0.78f, timePaint)
-                    canvas.drawText(mm[0].toString(), cx - w * 0.11f, topY + bigSize * 1.78f, timePaint)
-                    canvas.drawText(mm[1].toString(), cx + w * 0.11f, topY + bigSize * 1.60f, timePaint)
+                    canvas.drawText("$shortDate $dayStr", (cx - w * 0.22f).coerceAtLeast(w * 0.06f), topY, datePaint)
+                    canvas.drawText(hhPadded[0].toString(), cx - w * 0.10f * sizeScale.coerceAtMost(1.5f), topY + bigSize * 0.84f, timePaint)
+                    canvas.drawText(hhPadded[1].toString(), cx + w * 0.10f * sizeScale.coerceAtMost(1.5f), topY + bigSize * 0.70f, timePaint)
+                    canvas.drawText(mmPadded[0].toString(), cx - w * 0.10f * sizeScale.coerceAtMost(1.5f), topY + bigSize * 1.52f, timePaint)
+                    canvas.drawText(mmPadded[1].toString(), cx + w * 0.10f * sizeScale.coerceAtMost(1.5f), topY + bigSize * 1.38f, timePaint)
                 }
             }
         }
