@@ -1,6 +1,11 @@
 package com.origin.flip
 
+import android.app.KeyguardManager
+import android.app.WallpaperManager
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.*
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -41,15 +46,20 @@ class FlipWallpaperService : WallpaperService() {
         private val accelSensor by lazy {
             sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         }
+        private val keyguardManager by lazy {
+            getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        }
 
         private val handler = Handler(Looper.getMainLooper())
         private val bgLoadExecutor = Executors.newSingleThreadExecutor()
         @Volatile private var isLoadingBackground = false
 
         private var isVisible = false
+        private var isDeviceLocked = true
         private val bitmaps = mutableListOf<Bitmap>()
         private val depthCutouts = mutableListOf<Bitmap?>()
         private var fallbackBitmap: Bitmap? = null
+        private var systemWallpaperBitmap: Bitmap? = null
 
         private var centerRoll: Float? = null
         private var targetProgress = 0f
@@ -66,6 +76,25 @@ class FlipWallpaperService : WallpaperService() {
         private val rotationMatrix = FloatArray(9)
         private val orientationAngles = FloatArray(3)
 
+        // SMART LOCK DETECTOR RECEIVER
+        private val lockReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    Intent.ACTION_USER_PRESENT -> {
+                        isDeviceLocked = false
+                        drawFrame()
+                    }
+                    Intent.ACTION_SCREEN_OFF -> {
+                        isDeviceLocked = true
+                    }
+                    Intent.ACTION_SCREEN_ON -> {
+                        isDeviceLocked = keyguardManager.isKeyguardLocked
+                        drawFrame()
+                    }
+                }
+            }
+        }
+
         private val drawRunnable = object : Runnable {
             override fun run() {
                 if (isVisible) {
@@ -77,22 +106,36 @@ class FlipWallpaperService : WallpaperService() {
 
         override fun onSurfaceCreated(holder: SurfaceHolder) {
             super.onSurfaceCreated(holder)
+            isDeviceLocked = keyguardManager.isKeyguardLocked
             loadImagesFast()
-            drawFrame() // Instant draw on creation
+            drawFrame()
         }
 
         override fun onVisibilityChanged(visible: Boolean) {
             isVisible = visible
             if (visible) {
+                isDeviceLocked = keyguardManager.isKeyguardLocked
                 centerRoll = null
                 loadImagesFast()
                 registerBestSensor()
-                drawFrame() // Draw instantly before loop starts
+                drawFrame()
                 handler.removeCallbacks(drawRunnable)
                 handler.post(drawRunnable)
+
+                val filter = IntentFilter().apply {
+                    addAction(Intent.ACTION_USER_PRESENT)
+                    addAction(Intent.ACTION_SCREEN_OFF)
+                    addAction(Intent.ACTION_SCREEN_ON)
+                }
+                try {
+                    registerReceiver(lockReceiver, filter)
+                } catch (_: Exception) {}
             } else {
                 sensorManager.unregisterListener(this)
                 handler.removeCallbacks(drawRunnable)
+                try {
+                    unregisterReceiver(lockReceiver)
+                } catch (_: Exception) {}
             }
         }
 
@@ -124,11 +167,60 @@ class FlipWallpaperService : WallpaperService() {
             super.onDestroy()
             sensorManager.unregisterListener(this)
             handler.removeCallbacks(drawRunnable)
-            // Don't recycle static cache so next open is instant
+            try {
+                unregisterReceiver(lockReceiver)
+            } catch (_: Exception) {}
             bitmaps.clear()
             depthCutouts.clear()
             fallbackBitmap?.recycle()
             fallbackBitmap = null
+            systemWallpaperBitmap?.recycle()
+            systemWallpaperBitmap = null
+        }
+
+        private fun getSystemWallpaperBitmap(w: Int, h: Int): Bitmap {
+            val existing = systemWallpaperBitmap
+            if (existing != null && !existing.isRecycled && existing.width == w && existing.height == h) {
+                return existing
+            }
+            existing?.recycle()
+
+            // 1. Check saved system wallpaper file
+            val sysFile = File(filesDir, "sys_wallpaper.jpg")
+            if (sysFile.exists()) {
+                try {
+                    val bmp = BitmapFactory.decodeFile(sysFile.absolutePath)
+                    if (bmp != null) {
+                        val scaled = if (bmp.width != w || bmp.height != h) {
+                            val s = Bitmap.createScaledBitmap(bmp, w, h, true)
+                            bmp.recycle()
+                            s
+                        } else {
+                            bmp
+                        }
+                        systemWallpaperBitmap = scaled
+                        return scaled
+                    }
+                } catch (_: Exception) {}
+            }
+
+            // 2. Direct WallpaperManager fallback
+            try {
+                val wm = WallpaperManager.getInstance(applicationContext)
+                val d = wm.drawable
+                if (d != null) {
+                    val bw = w.coerceAtLeast(360)
+                    val bh = h.coerceAtLeast(640)
+                    val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+                    val c = Canvas(bmp)
+                    d.setBounds(0, 0, bw, bh)
+                    d.draw(c)
+                    systemWallpaperBitmap = bmp
+                    return bmp
+                }
+            } catch (_: Exception) {}
+
+            return ensureFallbackBitmap(w, h)
         }
 
         private fun ensureFallbackBitmap(w: Int, h: Int): Bitmap {
@@ -180,14 +272,12 @@ class FlipWallpaperService : WallpaperService() {
             return files
         }
 
-        // ULTRA-FAST LOAD: ZERO BLACK SCREEN
         private fun loadImagesFast() {
             val files = getWallpaperFiles()
             if (files.isEmpty()) return
 
             val latestTime = files.maxOfOrNull { it.lastModified() } ?: 0L
 
-            // 1. Agar pehle se memory cache me hai to 0 millisecond me use karo
             if (cachedBitmaps.isNotEmpty() && cachedTimestamp == latestTime && cachedBitmaps.size == files.size) {
                 if (bitmaps.isEmpty() || bitmaps.size != cachedBitmaps.size) {
                     bitmaps.clear()
@@ -202,7 +292,6 @@ class FlipWallpaperService : WallpaperService() {
                 inPreferredConfig = Bitmap.Config.RGB_565
             }
 
-            // 2. Pehli photo turant decode karke screen par dikhao (NO BLACK SCREEN)
             if (bitmaps.isEmpty() || cachedTimestamp != latestTime) {
                 bitmaps.clear()
                 depthCutouts.clear()
@@ -215,7 +304,6 @@ class FlipWallpaperService : WallpaperService() {
                 }
             }
 
-            // 3. Baaki photos background thread me load hongi taaki screen freeze na ho
             if (files.size > 1 && !isLoadingBackground) {
                 isLoadingBackground = true
                 bgLoadExecutor.execute {
@@ -321,6 +409,24 @@ class FlipWallpaperService : WallpaperService() {
                         ClockDrawer.drawClock(canvas, prefs, w.toFloat(), h.toFloat(), fallbackAdaptive)
                     }
                     return
+                }
+
+                // SMART LOCK LOGIC
+                val applyMode = prefs.getString("apply_mode", "both") ?: "both"
+                val isLocked = isDeviceLocked || keyguardManager.isKeyguardLocked
+
+                val shouldShowFlip = isPreview || when (applyMode) {
+                    "lock_only" -> isLocked
+                    "home_only" -> !isLocked
+                    else -> true // "both"
+                }
+
+                // Agar is screen par flip nahi chalana to Phone ka ORIGINAL SYSTEM WALLPAPER dikhao!
+                if (!shouldShowFlip) {
+                    val sysWallpaper = getSystemWallpaperBitmap(w, h)
+                    paint.alpha = 255
+                    canvas.drawBitmap(sysWallpaper, null, fullScreenRect, paint)
+                    return // Clean system wallpaper, no app photo, no clock!
                 }
 
                 val adaptiveColors = parseAdaptiveColors(prefs)

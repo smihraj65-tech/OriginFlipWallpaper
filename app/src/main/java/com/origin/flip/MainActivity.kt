@@ -38,6 +38,18 @@ class MainActivity : AppCompatActivity() {
     private lateinit var applyTogglePill: FrameLayout
     private lateinit var applyToggleText: TextView
     private lateinit var applyToggleKnob: View
+    private lateinit var applySubtitle: TextView
+    private lateinit var arrowView: TextView
+
+    // EXPANDABLE TARGET SCREENS
+    private lateinit var expandScreensPanel: LinearLayout
+    private lateinit var lockPill: FrameLayout
+    private lateinit var lockPillText: TextView
+    private lateinit var lockPillKnob: View
+    private lateinit var homePill: FrameLayout
+    private lateinit var homePillText: TextView
+    private lateinit var homePillKnob: View
+    private var isScreensPanelOpen = false
 
     private lateinit var togglePill: FrameLayout
     private lateinit var toggleText: TextView
@@ -60,6 +72,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide()
+
+        captureSystemWallpaper()
 
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
 
@@ -103,47 +117,73 @@ class MainActivity : AppCompatActivity() {
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(22), dp(58), dp(22), dp(28))
+            setPadding(dp(20), dp(44), dp(20), dp(32))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(content) { v, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            v.setPadding(dp(20), statusBars.top + dp(12), dp(20), dp(24))
+            insets
         }
 
         val badge = TextView(this).apply {
             text = "ORIGIN OS 6 ENGINE"
-            textSize = 12f
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#7EB4FF"))
+            setTypeface(Typeface.create("sans-serif-bold", Typeface.BOLD))
             letterSpacing = 0.12f
-            setTextColor(Color.WHITE)
-            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
-            gravity = Gravity.CENTER
-            background = GradientDrawable(
-                GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#00B0FF"), Color.parseColor("#1E88E5"))
-            ).apply {
-                cornerRadius = dp(24).toFloat()
+            background = GradientDrawable().apply {
+                setColor(Color.argb(55, 30, 90, 200))
+                cornerRadius = dp(14).toFloat()
             }
-            setPadding(dp(22), dp(9), dp(22), dp(9))
+            setPadding(dp(14), dp(5), dp(14), dp(5))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.bottomMargin = dp(10)
+            layoutParams = lp
         }
 
         val title = TextView(this).apply {
             text = "Flip Cards Wallpaper"
-            textSize = 30f
+            textSize = 28f
             setTextColor(Color.WHITE)
-            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
+            setTypeface(Typeface.create("sans-serif-black", Typeface.BOLD))
+            letterSpacing = -0.02f
             gravity = Gravity.CENTER
-            setPadding(0, dp(16), 0, dp(6))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.bottomMargin = dp(6)
+            layoutParams = lp
         }
 
         val subtitle = TextView(this).apply {
             text = "Dynamic flip-effect wallpapers • Curated & ready"
-            textSize = 14f
-            setTextColor(Color.parseColor("#C5CAE9"))
+            textSize = 13.5f
+            setTextColor(Color.parseColor("#9AA4B2"))
             gravity = Gravity.CENTER
-            setPadding(0, 0, 0, dp(24))
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.bottomMargin = dp(24)
+            layoutParams = lp
         }
 
         val hScrollCards = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(192)
-            ).apply { setMargins(0, 0, 0, dp(28)) }
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(250)
+            ).apply { setMargins(0, 0, 0, dp(24)) }
         }
 
         cardsRow = LinearLayout(this).apply {
@@ -160,7 +200,15 @@ class MainActivity : AppCompatActivity() {
         val pillH = dp(38)
         val knobSize = dp(30)
 
-        // 1. APPLY ORIGIN CARD (CARD AND SWITCH WORK SEPARATELY)
+        // 1. MAIN APPLY ORIGIN CARD CONTAINER
+        val applyCardContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, dp(14)) }
+        }
+
         val btnApplyCard = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -170,26 +218,32 @@ class MainActivity : AppCompatActivity() {
             ).apply {
                 cornerRadius = dp(24).toFloat()
             }
-            setPadding(dp(20), dp(14), dp(16), dp(14))
+            setPadding(dp(18), dp(12), dp(16), dp(12))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(74)
-            ).apply { setMargins(0, 0, 0, dp(16)) }
-            // Card background click opens chooser superfast
-            setOnClickListener {
-                launchLiveWallpaperChooser()
-            }
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(76)
+            )
+        }
+
+        // Left Click Section: Arrow + Title + Subtitle
+        val applyLeftSection = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+            isClickable = true
+            isFocusable = true
+        }
+
+        arrowView = TextView(this).apply {
+            text = "▼"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, dp(12), 0)
         }
 
         val applyTextCol = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            isClickable = true
-            isFocusable = true
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
             gravity = Gravity.CENTER_VERTICAL
-            // Text click opens chooser superfast
-            setOnClickListener {
-                launchLiveWallpaperChooser()
-            }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         }
 
         val applyTitle = TextView(this).apply {
@@ -199,9 +253,33 @@ class MainActivity : AppCompatActivity() {
             setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
         }
 
-        applyTextCol.addView(applyTitle)
+        applySubtitle = TextView(this).apply {
+            textSize = 12f
+            setTextColor(Color.parseColor("#E0F2FE"))
+            setPadding(0, dp(2), 0, 0)
+        }
 
-        // ON/OFF PILL SWITCH (ONLY TOGGLES ON/OFF, DOES NOT OPEN CHOOSER)
+        applyTextCol.addView(applyTitle)
+        applyTextCol.addView(applySubtitle)
+
+        applyLeftSection.addView(arrowView)
+        applyLeftSection.addView(applyTextCol)
+
+        // Arrow toggles options dropdown
+        arrowView.setOnClickListener {
+            toggleScreensDropdown()
+        }
+
+        // Tapping card title applies directly with NO POPUP!
+        applyTextCol.setOnClickListener {
+            applyWallpaperDirectly()
+        }
+
+        btnApplyCard.setOnClickListener {
+            applyWallpaperDirectly()
+        }
+
+        // MASTER ON/OFF PILL SWITCH
         applyTogglePill = FrameLayout(this).apply {
             layoutParams = LinearLayout.LayoutParams(pillW, pillH)
             setPadding(dp(4), dp(4), dp(4), dp(4))
@@ -231,7 +309,6 @@ class MainActivity : AppCompatActivity() {
         applyTogglePill.addView(applyToggleText)
         applyTogglePill.addView(applyToggleKnob)
 
-        // SUPERFAST INDEPENDENT TOGGLE
         applyTogglePill.setOnClickListener {
             val isCurrentlyOn = prefs.getBoolean("flip_toggle_active", false)
             if (isCurrentlyOn) {
@@ -247,6 +324,7 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "select minimum two photo", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
+                captureSystemWallpaper()
                 prefs.edit()
                     .putBoolean("flip_toggle_active", true)
                     .putBoolean("wallpaper_paused", false)
@@ -256,8 +334,191 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        btnApplyCard.addView(applyTextCol)
+        btnApplyCard.addView(applyLeftSection)
         btnApplyCard.addView(applyTogglePill)
+        applyCardContainer.addView(btnApplyCard)
+
+        // EXPANDABLE TARGET SCREENS PANEL (PINK & GREEN SWITCHES)
+        expandScreensPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#151D2A"))
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), Color.parseColor("#26354A"))
+            }
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, dp(8), 0, 0) }
+        }
+
+        val targetHeader = TextView(this).apply {
+            text = "TARGET SCREENS (SELECT WHERE TO RUN FLIP)"
+            textSize = 10.5f
+            setTextColor(Color.parseColor("#7E8B9B"))
+            setTypeface(Typeface.DEFAULT_BOLD)
+            letterSpacing = 0.05f
+            setPadding(0, 0, 0, dp(10))
+        }
+        expandScreensPanel.addView(targetHeader)
+
+        // 1. LOCK SCREEN OPTION (PINK SWITCH)
+        val lockRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(6))
+        }
+
+        val lockTextCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val lockTitle = TextView(this).apply {
+            text = "🔒 Lock Screen"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.DEFAULT_BOLD)
+        }
+
+        val lockSubtitle = TextView(this).apply {
+            text = "3D Flip & Clock on lock screen"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#94A3B8"))
+        }
+
+        lockTextCol.addView(lockTitle)
+        lockTextCol.addView(lockSubtitle)
+
+        lockPill = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(pillW, pillH)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+
+        lockPillText = TextView(this).apply {
+            textSize = 12f
+            setTypeface(Typeface.create("sans-serif-bold", Typeface.BOLD))
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        }
+
+        lockPillKnob = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+            }
+            elevation = dp(3).toFloat()
+            layoutParams = FrameLayout.LayoutParams(knobSize, knobSize, Gravity.CENTER_VERTICAL)
+        }
+
+        lockPill.addView(lockPillText)
+        lockPill.addView(lockPillKnob)
+
+        lockPill.setOnClickListener {
+            val curLock = prefs.getBoolean("apply_lock_screen", true)
+            val curHome = prefs.getBoolean("apply_home_screen", true)
+            val newLock = !curLock
+
+            if (!newLock && !curHome) {
+                Toast.makeText(this@MainActivity, "At least one screen must be selected", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            prefs.edit().putBoolean("apply_lock_screen", newLock).apply()
+            updateTargetMode()
+            updateLockPillUI(newLock)
+            updateApplySubtitle()
+            updateFooterText()
+        }
+
+        lockRow.addView(lockTextCol)
+        lockRow.addView(lockPill)
+        expandScreensPanel.addView(lockRow)
+
+        val rowDivider = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                setMargins(0, dp(6), 0, dp(6))
+            }
+            setBackgroundColor(Color.parseColor("#26354A"))
+        }
+        expandScreensPanel.addView(rowDivider)
+
+        // 2. HOME SCREEN OPTION (GREEN SWITCH)
+        val homeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, dp(4))
+        }
+
+        val homeTextCol = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val homeTitle = TextView(this).apply {
+            text = "📱 Home Screen"
+            textSize = 15f
+            setTextColor(Color.WHITE)
+            setTypeface(Typeface.DEFAULT_BOLD)
+        }
+
+        val homeSubtitle = TextView(this).apply {
+            text = "3D Flip & Clock on home screen"
+            textSize = 11.5f
+            setTextColor(Color.parseColor("#94A3B8"))
+        }
+
+        homeTextCol.addView(homeTitle)
+        homeTextCol.addView(homeSubtitle)
+
+        homePill = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(pillW, pillH)
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+
+        homePillText = TextView(this).apply {
+            textSize = 12f
+            setTypeface(Typeface.create("sans-serif-bold", Typeface.BOLD))
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        }
+
+        homePillKnob = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.WHITE)
+            }
+            elevation = dp(3).toFloat()
+            layoutParams = FrameLayout.LayoutParams(knobSize, knobSize, Gravity.CENTER_VERTICAL)
+        }
+
+        homePill.addView(homePillText)
+        homePill.addView(homePillKnob)
+
+        homePill.setOnClickListener {
+            val curLock = prefs.getBoolean("apply_lock_screen", true)
+            val curHome = prefs.getBoolean("apply_home_screen", true)
+            val newHome = !curHome
+
+            if (!newHome && !curLock) {
+                Toast.makeText(this@MainActivity, "At least one screen must be selected", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            prefs.edit().putBoolean("apply_home_screen", newHome).apply()
+            updateTargetMode()
+            updateHomePillUI(newHome)
+            updateApplySubtitle()
+            updateFooterText()
+        }
+
+        homeRow.addView(homeTextCol)
+        homeRow.addView(homePill)
+        expandScreensPanel.addView(homeRow)
+
+        applyCardContainer.addView(expandScreensPanel)
 
         // 2. CUSTOMIZATION CARD
         val btnCustomizeCard = LinearLayout(this).apply {
@@ -339,6 +600,12 @@ class MainActivity : AppCompatActivity() {
         updateApplyToggleUI(prefs.getBoolean("flip_toggle_active", false))
         updateToggleUI(prefs.getBoolean("clock_enabled", false))
 
+        val lockActive = prefs.getBoolean("apply_lock_screen", true)
+        val homeActive = prefs.getBoolean("apply_home_screen", true)
+        updateLockPillUI(lockActive)
+        updateHomePillUI(homeActive)
+        updateApplySubtitle()
+
         footerStatus = TextView(this).apply {
             text = "Active  •  OriginOS Seamless Flip  •  Ready to apply"
             textSize = 13f
@@ -348,12 +615,11 @@ class MainActivity : AppCompatActivity() {
 
         refreshCardsStrip()
 
-        // Clean UI - No update buttons
         content.addView(badge)
         content.addView(title)
         content.addView(subtitle)
         content.addView(hScrollCards)
-        content.addView(btnApplyCard)
+        content.addView(applyCardContainer)
         content.addView(btnCustomizeCard)
         content.addView(footerStatus)
 
@@ -363,6 +629,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        captureSystemWallpaper()
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
         if (::togglePill.isInitialized) {
             updateToggleUI(prefs.getBoolean("clock_enabled", false))
@@ -370,25 +637,95 @@ class MainActivity : AppCompatActivity() {
         if (::applyTogglePill.isInitialized) {
             updateApplyToggleUI(prefs.getBoolean("flip_toggle_active", false))
         }
+        if (::lockPill.isInitialized) {
+            updateLockPillUI(prefs.getBoolean("apply_lock_screen", true))
+        }
+        if (::homePill.isInitialized) {
+            updateHomePillUI(prefs.getBoolean("apply_home_screen", true))
+        }
+        updateApplySubtitle()
         updateFooterText()
     }
 
-    // DIRECT & SUPERFAST - OPENS SYSTEM LIVE WALLPAPER SCREEN INSTANTLY
-    private fun launchLiveWallpaperChooser() {
+    private fun toggleScreensDropdown() {
+        isScreensPanelOpen = !isScreensPanelOpen
+        arrowView.text = if (isScreensPanelOpen) "▲" else "▼"
+        expandScreensPanel.visibility = if (isScreensPanelOpen) View.VISIBLE else View.GONE
+    }
+
+    private fun updateTargetMode() {
+        val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
+        val lockOn = prefs.getBoolean("apply_lock_screen", true)
+        val homeOn = prefs.getBoolean("apply_home_screen", true)
+        val targetMode = when {
+            lockOn && homeOn -> "both"
+            lockOn -> "lock_only"
+            homeOn -> "home_only"
+            else -> "both"
+        }
+        prefs.edit().putString("apply_mode", targetMode).apply()
+    }
+
+    private fun updateApplySubtitle() {
+        if (!::applySubtitle.isInitialized) return
+        val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
+        val lockOn = prefs.getBoolean("apply_lock_screen", true)
+        val homeOn = prefs.getBoolean("apply_home_screen", true)
+        applySubtitle.text = when {
+            lockOn && homeOn -> "Lock (Pink) ON • Home (Green) ON"
+            lockOn -> "Lock Screen Only (Pink) ON"
+            homeOn -> "Home Screen Only (Green) ON"
+            else -> "Tap arrow to choose screens"
+        }
+    }
+
+    // DIRECT APPLY - NO POPUP DIALOG ASKED!
+    private fun applyWallpaperDirectly() {
         val cardPhotos = getCardPhotos()
         if (cardPhotos.size < 2) {
             Toast.makeText(this@MainActivity, "select minimum two photo", Toast.LENGTH_SHORT).show()
             return
         }
 
+        captureSystemWallpaper()
+        updateTargetMode()
+
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
         prefs.edit()
             .putBoolean("flip_toggle_active", true)
             .putBoolean("wallpaper_paused", false)
             .apply()
+
         updateApplyToggleUI(true)
         updateFooterText()
 
+        launchLiveWallpaperChooser()
+    }
+
+    private fun captureSystemWallpaper() {
+        bgExecutor.execute {
+            try {
+                val wm = WallpaperManager.getInstance(this@MainActivity)
+                val drawable = wm.drawable
+                if (drawable != null) {
+                    val dm = resources.displayMetrics
+                    val w = dm.widthPixels
+                    val h = dm.heightPixels
+                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+                    val c = Canvas(bmp)
+                    drawable.setBounds(0, 0, w, h)
+                    drawable.draw(c)
+                    val sysFile = File(filesDir, "sys_wallpaper.jpg")
+                    FileOutputStream(sysFile).use { out ->
+                        bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                    }
+                    bmp.recycle()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun launchLiveWallpaperChooser() {
         try {
             val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
                 putExtra(
@@ -404,6 +741,64 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(Intent.ACTION_SET_WALLPAPER))
             }
         }
+    }
+
+    private fun updateLockPillUI(isActive: Boolean) {
+        val knobParams = lockPillKnob.layoutParams as FrameLayout.LayoutParams
+        if (isActive) {
+            // Origin Pink Gradient
+            lockPill.background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#EC4899"), Color.parseColor("#F43F5E"))
+            ).apply {
+                cornerRadius = dp(20).toFloat()
+            }
+            lockPillText.text = "ON"
+            lockPillText.setTextColor(Color.WHITE)
+            lockPillText.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            lockPillText.setPadding(dp(10), 0, 0, 0)
+            knobParams.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        } else {
+            lockPill.background = GradientDrawable().apply {
+                setColor(Color.parseColor("#374151"))
+                cornerRadius = dp(20).toFloat()
+            }
+            lockPillText.text = "OFF"
+            lockPillText.setTextColor(Color.parseColor("#9CA3AF"))
+            lockPillText.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            lockPillText.setPadding(0, 0, dp(9), 0)
+            knobParams.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        }
+        lockPillKnob.layoutParams = knobParams
+    }
+
+    private fun updateHomePillUI(isActive: Boolean) {
+        val knobParams = homePillKnob.layoutParams as FrameLayout.LayoutParams
+        if (isActive) {
+            // Origin Green Gradient
+            homePill.background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(Color.parseColor("#10B981"), Color.parseColor("#22C55E"))
+            ).apply {
+                cornerRadius = dp(20).toFloat()
+            }
+            homePillText.text = "ON"
+            homePillText.setTextColor(Color.WHITE)
+            homePillText.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+            homePillText.setPadding(dp(10), 0, 0, 0)
+            knobParams.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        } else {
+            homePill.background = GradientDrawable().apply {
+                setColor(Color.parseColor("#374151"))
+                cornerRadius = dp(20).toFloat()
+            }
+            homePillText.text = "OFF"
+            homePillText.setTextColor(Color.parseColor("#9CA3AF"))
+            homePillText.gravity = Gravity.END or Gravity.CENTER_VERTICAL
+            homePillText.setPadding(0, 0, dp(9), 0)
+            knobParams.gravity = Gravity.START or Gravity.CENTER_VERTICAL
+        }
+        homePillKnob.layoutParams = knobParams
     }
 
     private fun updateApplyToggleUI(isActive: Boolean) {
@@ -466,12 +861,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateFooterText() {
         if (!::footerStatus.isInitialized) return
-        val active = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
-            .getBoolean("flip_toggle_active", false)
+        val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
+        val active = prefs.getBoolean("flip_toggle_active", false)
+        val mode = prefs.getString("apply_mode", "both")
         val count = getCardPhotos().size
         footerStatus.text = when {
             !active -> "OFF  •  System Wallpaper Mode"
             count < 2 -> "Select minimum two photo"
+            mode == "lock_only" -> "Active  •  Only Lock Screen Mode"
+            mode == "home_only" -> "Active  •  Only Home Screen Mode"
             else -> "Active  •  $count Photos Selected"
         }
     }
@@ -579,803 +977,615 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        if (bestScore < 0f && count > 0) {
-            val avgR = (rSum / count).toInt()
-            val avgG = (gSum / count).toInt()
-            val avgB = (bSum / count).toInt()
-            val lum = (0.299 * avgR + 0.587 * avgG + 0.114 * avgB) / 255.0
-            return if (lum > 0.62) Color.parseColor("#1A2232") else Color.parseColor("#F5F8FF")
+        if (bestScore > 0f) {
+            val hsl = FloatArray(3)
+            androidx.core.graphics.ColorUtils.colorToHSL(bestColor, hsl)
+            hsl[2] = hsl[2].coerceIn(0.55f, 0.88f)
+            return androidx.core.graphics.ColorUtils.HSLToColor(hsl)
         }
 
-        Color.colorToHSV(bestColor, hsv)
-        hsv[1] = (hsv[1] * 0.72f).coerceIn(0.18f, 0.85f)
-        hsv[2] = hsv[2].coerceIn(0.78f, 0.99f)
-        return Color.HSVToColor(hsv)
+        val avgR = (rSum / count).toInt().coerceIn(0, 255)
+        val avgG = (gSum / count).toInt().coerceIn(0, 255)
+        val avgB = (bSum / count).toInt().coerceIn(0, 255)
+        val avgColor = Color.rgb(avgR, avgG, avgB)
+
+        return if (isLightColor(avgColor)) {
+            Color.parseColor("#1B2A4A")
+        } else {
+            Color.parseColor("#DCEBFF")
+        }
     }
 
-    private fun buildSubjectCutoutBitmap(src: Bitmap): Bitmap {
-        val w = src.width
-        val h = src.height
-        val sw = (w / 4).coerceAtLeast(64)
-        val sh = (h / 4).coerceAtLeast(112)
-        val smallSrc = Bitmap.createScaledBitmap(src, sw, sh, true)
+    private fun buildSubjectCutoutBitmap(source: Bitmap): Bitmap? {
+        val w = source.width
+        val h = source.height
+        val cutout = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
 
-        val pixels = IntArray(sw * sh)
-        smallSrc.getPixels(pixels, 0, sw, 0, 0, sw, sh)
-        smallSrc.recycle()
+        val srcPixels = IntArray(w * h)
+        val outPixels = IntArray(w * h)
+        source.getPixels(srcPixels, 0, w, 0, 0, w, h)
 
-        val maskPixels = IntArray(sw * sh)
-        val cx = sw * 0.5f
-        val cy = sh * 0.48f
-        val rxInv = 1f / (sw * 0.34f)
-        val ryInv = 1f / (sh * 0.38f)
+        var borderR = 0L
+        var borderG = 0L
+        var borderB = 0L
+        var borderCount = 0
 
-        for (y in 0 until sh) {
-            val dy = (y - cy) * ryInv
-            val dy2 = dy * dy
-            val yOffset = y * sw
-            for (x in 0 until sw) {
-                val dx = (x - cx) * rxInv
-                val dist = sqrt(dx * dx + dy2)
-                val px = pixels[yOffset + x]
-                val r = (px shr 16) and 0xFF
-                val g = (px shr 8) and 0xFF
-                val b = px and 0xFF
-                val lum = (0.299f * r + 0.587f * g + 0.114f * b) * (1f / 255f)
-                val detailBoost = if (lum in 0.16f..0.88f) 0.15f else 0f
-                val alphaVal = ((1.22f - dist + detailBoost) * 255f).toInt().coerceIn(0, 255)
-                maskPixels[yOffset + x] = (alphaVal shl 24)
+        for (x in 0 until w step 2) {
+            val topPx = srcPixels[x]
+            borderR += (topPx shr 16) and 0xFF
+            borderG += (topPx shr 8) and 0xFF
+            borderB += topPx and 0xFF
+            borderCount++
+
+            val btmPx = srcPixels[(h - 1) * w + x]
+            borderR += (btmPx shr 16) and 0xFF
+            borderG += (btmPx shr 8) and 0xFF
+            borderB += btmPx and 0xFF
+            borderCount++
+        }
+
+        for (y in 0 until h step 2) {
+            val lftPx = srcPixels[y * w]
+            borderR += (lftPx shr 16) and 0xFF
+            borderG += (lftPx shr 8) and 0xFF
+            borderB += lftPx and 0xFF
+            borderCount++
+
+            val rgtPx = srcPixels[y * w + (w - 1)]
+            borderR += (rgtPx shr 16) and 0xFF
+            borderG += (rgtPx shr 8) and 0xFF
+            borderB += rgtPx and 0xFF
+            borderCount++
+        }
+
+        val bgR = if (borderCount > 0) (borderR / borderCount).toFloat() else 128f
+        val bgG = if (borderCount > 0) (borderG / borderCount).toFloat() else 128f
+        val bgB = if (borderCount > 0) (borderB / borderCount).toFloat() else 128f
+
+        val cx = w * 0.5f
+        val cy = h * 0.38f
+        val maxR = sqrt(cx * cx + cy * cy)
+
+        for (y in 0 until h) {
+            val yOffset = y * w
+            for (x in 0 until w) {
+                val idx = yOffset + x
+                val c = srcPixels[idx]
+                val r = (c shr 16) and 0xFF
+                val g = (c shr 8) and 0xFF
+                val b = c and 0xFF
+
+                val dr = r - bgR
+                val dg = g - bgG
+                val db = b - bgB
+                val colorDist = sqrt(dr * dr + dg * dg + db * db)
+
+                val dx = x - cx
+                val dy = y - cy
+                val spatialWeight = (1f - (sqrt(dx * dx + dy * dy) / maxR)).coerceIn(0.1f, 1f)
+                val subjectScore = colorDist * spatialWeight
+
+                val alpha = when {
+                    subjectScore > 48f -> 255
+                    subjectScore > 24f -> (((subjectScore - 24f) / 24f) * 255f).toInt()
+                    else -> 0
+                }
+                outPixels[idx] = (alpha shl 24) or (r shl 16) or (g shl 8) or b
             }
         }
 
-        val maskSmall = Bitmap.createBitmap(maskPixels, sw, sh, Bitmap.Config.ARGB_8888)
-        val fullMask = Bitmap.createScaledBitmap(maskSmall, w, h, true)
-        maskSmall.recycle()
-
-        val cutout = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = Canvas(cutout)
-        val maskPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-        }
-        c.drawBitmap(src, 0f, 0f, null)
-        c.drawBitmap(fullMask, 0f, 0f, maskPaint)
-        fullMask.recycle()
-
+        cutout.setPixels(outPixels, 0, w, 0, 0, w, h)
         return cutout
     }
 
     private fun precomputeWallpaperCaches() {
         if (isPrecomputing) return
         isPrecomputing = true
-        bgExecutor.execute {
-            try {
-                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
-                val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
-                val files = filesDir.listFiles()
-                    ?.filter { it.name.startsWith("wp_") && it.name.endsWith(".jpg") }
-                    ?.sortedBy { it.name } ?: emptyList()
-                val colorList = mutableListOf<Int>()
+        try {
+            val files = getCardPhotos()
+            if (files.isEmpty()) return
 
-                files.forEachIndexed { idx, file ->
-                    val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
-                    val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+            val adaptiveColors = mutableListOf<Int>()
+            files.forEachIndexed { idx, file ->
+                var bmp: Bitmap? = null
+                try {
+                    bmp = BitmapFactory.decodeFile(file.absolutePath)
                     if (bmp != null) {
-                        colorList.add(extractAdaptiveColorFromBitmap(bmp))
+                        val color = extractAdaptiveColorFromBitmap(bmp)
+                        adaptiveColors.add(color)
+
                         val depthFile = File(filesDir, "depth_$idx.png")
                         if (!depthFile.exists()) {
                             val cutout = buildSubjectCutoutBitmap(bmp)
-                            FileOutputStream(depthFile).use { out ->
-                                cutout.compress(Bitmap.CompressFormat.PNG, 80, out)
+                            if (cutout != null) {
+                                FileOutputStream(depthFile).use { out ->
+                                    cutout.compress(Bitmap.CompressFormat.PNG, 100, out)
+                                }
+                                cutout.recycle()
                             }
-                            cutout.recycle()
                         }
-                        bmp.recycle()
                     }
+                } catch (_: Exception) {
+                } finally {
+                    bmp?.recycle()
                 }
-                prefs.edit().putString("adaptive_colors_csv", colorList.joinToString(",")).apply()
-            } catch (_: Exception) {
-            } finally {
-                isPrecomputing = false
             }
+
+            val csv = adaptiveColors.joinToString(",")
+            val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("adaptive_colors_csv", csv).apply()
+
+            if (adaptiveColors.isNotEmpty()) {
+                prefs.edit().putInt("adaptive_clock_color", adaptiveColors[0]).apply()
+            }
+        } finally {
+            isPrecomputing = false
         }
     }
 
     private fun refreshCardsStrip() {
         cardsRow.removeAllViews()
-        val cardW = dp(104)
-        val cardH = dp(192)
-        val gap = dp(12)
-        updateFooterText()
+        val photos = getCardPhotos()
 
-        bgExecutor.execute {
-            val savedFiles = getCardPhotos()
-            val thumbOpts = BitmapFactory.Options().apply { inSampleSize = 4 }
-
-            val loadedCards = if (savedFiles.isNotEmpty()) {
-                savedFiles.mapIndexedNotNull { index, file ->
-                    BitmapFactory.decodeFile(file.absolutePath, thumbOpts)?.let { Pair(it, index) }
+        photos.forEachIndexed { index, file ->
+            val cardFrame = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(130), dp(220)).apply {
+                    setMargins(0, 0, dp(14), 0)
                 }
-            } else emptyList()
-
-            val defaultCards = if (loadedCards.isEmpty()) {
-                (0 until 3).map { makeDefaultCardBitmap(it) }
-            } else emptyList()
-
-            runOnUiThread {
-                cardsRow.removeAllViews()
-                if (loadedCards.isNotEmpty()) {
-                    loadedCards.forEach { (bmp, index) ->
-                        cardsRow.addView(buildPhotoCard(bmp, cardW, cardH, gap, showClose = true) {
-                            removePhotoAt(index)
-                        })
-                    }
-                } else {
-                    defaultCards.forEach { bmp ->
-                        cardsRow.addView(buildPhotoCard(bmp, cardW, cardH, gap, showClose = true) {
-                            pickImages.launch(arrayOf("image/*"))
-                        })
-                    }
-                }
-
-                val addCard = LinearLayout(this@MainActivity).apply {
-                    orientation = LinearLayout.VERTICAL
-                    gravity = Gravity.CENTER
-                    layoutParams = LinearLayout.LayoutParams(cardW, cardH)
-                    background = GradientDrawable().apply {
-                        setColor(Color.argb(48, 120, 144, 180))
-                        cornerRadius = dp(20).toFloat()
-                        setStroke(dp(2), Color.argb(145, 210, 222, 245))
-                    }
-
-                    val plusCircle = TextView(this@MainActivity).apply {
-                        text = "+"
-                        textSize = 24f
-                        setTextColor(Color.WHITE)
-                        gravity = Gravity.CENTER
-                        background = GradientDrawable().apply {
-                            shape = GradientDrawable.OVAL
-                            setColor(Color.argb(120, 255, 255, 255))
-                        }
-                        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
-                            setMargins(0, 0, 0, dp(8))
-                        }
-                    }
-
-                    val addLabel = TextView(this@MainActivity).apply {
-                        text = "Add"
-                        textSize = 13f
-                        setTextColor(Color.WHITE)
-                        setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL))
-                        gravity = Gravity.CENTER
-                    }
-
-                    addView(plusCircle)
-                    addView(addLabel)
-
-                    setOnClickListener {
-                        pickImages.launch(arrayOf("image/*"))
-                    }
-                }
-
-                cardsRow.addView(addCard)
-                updateFooterText()
-            }
-        }
-    }
-
-    private fun buildPhotoCard(
-        bitmap: Bitmap,
-        cardW: Int,
-        cardH: Int,
-        rightMargin: Int,
-        showClose: Boolean,
-        onRemoveClick: () -> Unit
-    ): FrameLayout {
-        return FrameLayout(this@MainActivity).apply {
-            layoutParams = LinearLayout.LayoutParams(cardW, cardH).apply {
-                setMargins(0, 0, rightMargin, 0)
             }
 
-            val imgView = ImageView(this@MainActivity).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
+            val imgCard = ImageView(this).apply {
                 layoutParams = FrameLayout.LayoutParams(
                     FrameLayout.LayoutParams.MATCH_PARENT,
                     FrameLayout.LayoutParams.MATCH_PARENT
                 )
-                clipToOutline = true
-                outlineProvider = object : android.view.ViewOutlineProvider() {
-                    override fun getOutline(view: View, outline: Outline) {
-                        outline.setRoundRect(0, 0, view.width, view.height, dp(20).toFloat())
-                    }
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(20).toFloat()
+                    setColor(Color.parseColor("#1B2234"))
                 }
-                setImageBitmap(bitmap)
+                clipToOutline = true
+            }
+
+            try {
+                val opts = BitmapFactory.Options().apply { inSampleSize = 2 }
+                val bmp = BitmapFactory.decodeFile(file.absolutePath, opts)
+                imgCard.setImageBitmap(bmp)
+            } catch (_: Exception) {}
+
+            val closeBtn = TextView(this).apply {
+                text = "✕"
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(Color.argb(175, 20, 20, 20))
+                }
+                val btnSize = dp(28)
+                layoutParams = FrameLayout.LayoutParams(btnSize, btnSize, Gravity.TOP or Gravity.END).apply {
+                    setMargins(0, dp(8), dp(8), 0)
+                }
+                setOnClickListener {
+                    removePhotoAt(index)
+                }
+            }
+
+            cardFrame.addView(imgCard)
+            cardFrame.addView(closeBtn)
+            cardsRow.addView(cardFrame)
+        }
+
+        if (photos.size < 6) {
+            val addFrame = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(dp(130), dp(220)).apply {
+                    setMargins(0, 0, dp(14), 0)
+                }
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(20).toFloat()
+                    setColor(Color.argb(40, 255, 255, 255))
+                    setStroke(dp(1), Color.argb(80, 255, 255, 255), dp(4).toFloat(), dp(4).toFloat())
+                }
                 setOnClickListener {
                     pickImages.launch(arrayOf("image/*"))
                 }
             }
 
-            val borderOverlay = View(this@MainActivity).apply {
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                )
-                background = GradientDrawable().apply {
-                    setColor(Color.TRANSPARENT)
-                    cornerRadius = dp(20).toFloat()
-                    setStroke(dp(1), Color.argb(65, 255, 255, 255))
-                }
-                isClickable = false
-                isFocusable = false
+            val plus = TextView(this).apply {
+                text = "+"
+                textSize = 34f
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+            }
+            val addText = TextView(this).apply {
+                text = "Add Photo"
+                textSize = 12.5f
+                setTextColor(Color.parseColor("#A0ABC0"))
             }
 
-            addView(imgView)
-            addView(borderOverlay)
+            addFrame.addView(plus)
+            addFrame.addView(addText)
+            cardsRow.addView(addFrame)
+        }
 
-            if (showClose) {
-                val closeBtn = TextView(this@MainActivity).apply {
-                    text = "✕"
-                    textSize = 12f
-                    setTextColor(Color.parseColor("#1A1D24"))
-                    setTypeface(null, Typeface.BOLD)
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        setColor(Color.argb(235, 255, 255, 255))
-                    }
-                    layoutParams = FrameLayout.LayoutParams(dp(24), dp(24), Gravity.TOP or Gravity.END).apply {
-                        setMargins(0, dp(8), dp(8), 0)
-                    }
-                    setOnClickListener {
-                        onRemoveClick()
-                    }
-                }
-                addView(closeBtn)
-            }
+        updateFooterText()
+        bgExecutor.execute {
+            precomputeWallpaperCaches()
         }
     }
 
-    private fun makeDefaultCardBitmap(index: Int): Bitmap {
-        val w = 240
-        val h = 420
-        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val c = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-
-        when (index) {
-            0 -> {
-                c.drawColor(Color.parseColor("#8FA4F3"))
-                p.color = Color.parseColor("#B6C5F8")
-                c.drawPath(Path().apply {
-                    moveTo(0f, 0f); lineTo(w * 0.75f, 0f); lineTo(w * 0.45f, h * 0.52f); lineTo(0f, h * 0.35f); close()
-                }, p)
-                p.color = Color.parseColor("#6D82DC")
-                c.drawPath(Path().apply {
-                    moveTo(w * 0.75f, 0f); lineTo(w.toFloat(), 0f); lineTo(w.toFloat(), h * 0.45f); lineTo(w * 0.45f, h * 0.52f); close()
-                }, p)
-            }
-            1 -> {
-                p.shader = LinearGradient(
-                    0f, 0f, w.toFloat(), h.toFloat(),
-                    intArrayOf(Color.parseColor("#4A6FA5"), Color.parseColor("#38B6FF"), Color.parseColor("#1D3557")),
-                    null, Shader.TileMode.CLAMP
-                )
-                c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
-            }
-            else -> {
-                c.drawColor(Color.parseColor("#080D1A"))
-                p.color = Color.parseColor("#29B6F6")
-                p.strokeWidth = 3f
-                c.drawLine(w * 0.65f, 0f, w * 0.65f, h.toFloat(), p)
-                c.drawLine(0f, h * 0.42f, w.toFloat(), h * 0.42f, p)
-            }
-        }
-        return bmp
-    }
-
+    // CLOCK CUSTOMIZATION POPUP
     private fun openCustomizationDialog() {
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
-        val dialog = Dialog(this@MainActivity, android.R.style.Theme_Black_NoTitleBar)
-        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
-        dialog.window?.apply {
-            statusBarColor = Color.BLACK
-            navigationBarColor = Color.WHITE
-        }
 
-        val previewOpts = BitmapFactory.Options().apply { inSampleSize = 2 }
-        val cardPhotos = getCardPhotos()
-        val previewBmp: Bitmap? = if (cardPhotos.isNotEmpty()) {
-            BitmapFactory.decodeFile(cardPhotos[0].absolutePath, previewOpts)
-        } else null
-
-        val depth0File = File(filesDir, "depth_0.png")
-        val previewDepthBmp: Bitmap? = if (depth0File.exists()) {
-            BitmapFactory.decodeFile(depth0File.absolutePath, previewOpts)
-        } else null
-
-        val cachedColor = prefs.getInt("adaptive_clock_color", -1)
-        val adaptiveColor = if (cachedColor != -1) {
-            cachedColor
-        } else {
-            val c = extractAdaptiveColorFromBitmap(previewBmp)
-            prefs.edit().putInt("adaptive_clock_color", c).apply()
-            c
-        }
-
-        var isPanelOpen = false
         var currentMode = prefs.getInt("clock_mode", 0)
-        var currentTab = 0
-        var currentStyle = prefs.getInt("clock_style", 0).coerceIn(0, if (currentMode == 0) 3 else 2)
-        var currentFont = prefs.getInt("clock_font", 0).coerceIn(0, 5)
-        var currentCustomSize = prefs.getFloat("clock_custom_size", 1.35f).coerceIn(0.75f, 2.45f)
-        var currentWeight = prefs.getFloat("clock_weight", 0.72f).coerceIn(0.25f, 1.0f)
+        var currentStyle = prefs.getInt("clock_style", 0)
+        var currentFont = prefs.getInt("clock_font", 0)
+        var currentWeight = prefs.getFloat("clock_weight", 0.72f)
+        var currentCustomSize = prefs.getFloat("clock_custom_size", 1.35f)
         var currentColor = prefs.getInt("clock_color", ClockDrawer.COLOR_ADAPTIVE)
         var isDepthEnabled = prefs.getBoolean("depth_effect_enabled", false)
-        var offsetX = prefs.getFloat("clock_offset_x", 0f).coerceIn(-0.28f, 0.28f)
-        var offsetY = prefs.getFloat("clock_offset_y", 0f).coerceIn(-0.08f, 0.36f)
-        var isHsvPickerOpen = false
+        var offsetX = prefs.getFloat("clock_offset_x", 0f)
+        var offsetY = prefs.getFloat("clock_offset_y", 0f)
 
-        fun effectiveSize(): Float = if (currentMode == 1) currentCustomSize else 1.0f
+        val adaptiveCol = prefs.getInt("adaptive_clock_color", Color.WHITE)
+
+        var isPanelOpen = false
+        var currentTab = 0
+        var isHsvPickerOpen = false
+        var pickerHue = 200f
+        var pickerSat = 0.8f
+        var pickerVal = 0.9f
+
+        var isDraggingHandle = false
+        var dragStartY = 0f
+        var dragStartSize = 1.35f
+        var activeHandleBoxBottom = 0f
+
+        var isDraggingClockPos = false
+        var dragStartX = 0f
+        var dragStartYPos = 0f
+        var dragStartOffsetX = 0f
+        var dragStartOffsetY = 0f
+
+        val dialog = Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen)
+        dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
+
+        val root = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(Color.BLACK)
+        }
+
+        val previewWrapper = FrameLayout(this).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        }
+
+        var sampleBmp: Bitmap? = null
+        val photos = getCardPhotos()
+        if (photos.isNotEmpty()) {
+            try {
+                sampleBmp = BitmapFactory.decodeFile(photos[0].absolutePath)
+            } catch (_: Exception) {}
+        }
+        val depthFile0 = File(filesDir, "depth_0.png")
+        val sampleDepth: Bitmap? = if (depthFile0.exists()) BitmapFactory.decodeFile(depthFile0.absolutePath) else null
+
+        val previewView = object : View(this) {
+            private val pBmp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            private val pDepth = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                color = Color.parseColor("#40C4FF")
+                strokeWidth = dpF(1.8f)
+                pathEffect = DashPathEffect(floatArrayOf(dpF(6f), dpF(5f)), 0f)
+            }
+            private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = Color.parseColor("#00E5FF")
+            }
+            private val handleInner = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = Color.WHITE
+            }
+
+            override fun onDraw(canvas: Canvas) {
+                super.onDraw(canvas)
+                val w = width.toFloat()
+                val h = height.toFloat()
+
+                sampleBmp?.let {
+                    canvas.drawBitmap(it, null, RectF(0f, 0f, w, h), pBmp)
+                } ?: run {
+                    val p = Paint().apply {
+                        shader = LinearGradient(0f, 0f, 0f, h, Color.parseColor("#152039"), Color.parseColor("#070A12"), Shader.TileMode.CLAMP)
+                    }
+                    canvas.drawRect(0f, 0f, w, h, p)
+                }
+
+                ClockDrawer.drawClock(canvas, prefs, w, h, adaptiveCol)
+
+                if (isDepthEnabled && sampleDepth != null) {
+                    canvas.drawBitmap(sampleDepth, null, RectF(0f, 0f, w, h), pDepth)
+                }
+
+                if (isPanelOpen && currentMode == 1 && currentTab == 1) {
+                    val boxW = w * 0.88f
+                    val boxH = (h * 0.22f * currentCustomSize).coerceIn(h * 0.16f, h * 0.54f)
+                    val boxLeft = (w - boxW) / 2f
+                    val boxTop = (h * (0.155f + offsetY)).coerceIn(h * 0.08f, h * 0.65f) - dpF(12f)
+                    val boxBottom = boxTop + boxH
+                    activeHandleBoxBottom = boxBottom
+
+                    val r = RectF(boxLeft, boxTop, boxLeft + boxW, boxBottom)
+                    canvas.drawRoundRect(r, dpF(16f), dpF(16f), boxPaint)
+
+                    val hSize = dpF(20f)
+                    val cx = w * 0.5f
+                    canvas.drawRoundRect(RectF(cx - hSize, boxBottom - dpF(8f), cx + hSize, boxBottom + dpF(8f)), dpF(8f), dpF(8f), handlePaint)
+                    canvas.drawRoundRect(RectF(cx - hSize * 0.45f, boxBottom - dpF(2f), cx + hSize * 0.45f, boxBottom + dpF(2f)), dpF(2f), dpF(2f), handleInner)
+                }
+            }
+        }
+
+        val topBarClosed = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(36), dp(16), dp(12))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP
+            )
+        }
+
+        val btnBackTop = TextView(this).apply {
+            text = "✕"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.argb(150, 20, 20, 20))
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
+            setOnClickListener {
+                dialog.dismiss()
+            }
+        }
+
+        val tapHint = TextView(this).apply {
+            text = "Tap clock to edit style & depth"
+            textSize = 13f
+            setTextColor(Color.parseColor("#E0E0E0"))
+            background = GradientDrawable().apply {
+                setColor(Color.argb(160, 10, 15, 25))
+                cornerRadius = dp(16).toFloat()
+            }
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(dp(16), 0, 0, 0) }
+        }
+
+        topBarClosed.addView(btnBackTop)
+        topBarClosed.addView(tapHint)
+        previewWrapper.addView(topBarClosed)
+
+        // BOTTOM EDITING SHEET
+        val sheet = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            background = GradientDrawable().apply {
+                setColor(Color.WHITE)
+                cornerRadii = floatArrayOf(
+                    dpF(28f), dpF(28f), dpF(28f), dpF(28f),
+                    0f, 0f, 0f, 0f
+                )
+            }
+            setPadding(dp(18), dp(14), dp(18), dp(22))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM
+            )
+        }
+
+        val sheetHeader = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, 0, 0, dp(10)) }
+        }
+
+        val modeSwitchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#F1F3F4"))
+                cornerRadius = dp(16).toFloat()
+            }
+            setPadding(dp(3), dp(3), dp(3), dp(3))
+            layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f)
+        }
+
+        val btnClassic = TextView(this).apply {
+            text = "Classic"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+        }
+
+        val btnCustom = TextView(this).apply {
+            text = "Custom"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+        }
+
+        modeSwitchRow.addView(btnClassic)
+        modeSwitchRow.addView(btnCustom)
+
+        val btnDone = TextView(this).apply {
+            text = "Done"
+            textSize = 14f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#1A73E8"))
+            setPadding(dp(16), dp(6), dp(4), dp(6))
+            setOnClickListener {
+                isPanelOpen = false
+                topBarClosed.visibility = View.VISIBLE
+                sheet.visibility = View.GONE
+                previewView.invalidate()
+            }
+        }
+
+        sheetHeader.addView(modeSwitchRow)
+        sheetHeader.addView(btnDone)
+
+        val tabStrip = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(34)
+            ).apply { setMargins(0, 0, 0, dp(12)) }
+        }
+
+        fun makeTab(label: String): TextView = TextView(this).apply {
+            text = label
+            textSize = 13f
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+        }
+
+        val tabStyles = makeTab("Style")
+        val tabFonts = makeTab("Font & Size")
+        val tabColors = makeTab("Color")
+        val tabDepth = makeTab("Depth")
+
+        tabStrip.addView(tabStyles)
+        tabStrip.addView(tabFonts)
+        tabStrip.addView(tabColors)
+        tabStrip.addView(tabDepth)
+
+        val contentHolder = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(142)
+            )
+        }
+
+        sheet.addView(sheetHeader)
+        sheet.addView(tabStrip)
+        sheet.addView(contentHolder)
 
         fun saveTempPrefs() {
             prefs.edit()
                 .putInt("clock_mode", currentMode)
                 .putInt("clock_style", currentStyle)
                 .putInt("clock_font", currentFont)
-                .putFloat("clock_custom_size", currentCustomSize)
-                .putFloat("clock_size", effectiveSize())
                 .putFloat("clock_weight", currentWeight)
+                .putFloat("clock_custom_size", currentCustomSize)
                 .putInt("clock_color", currentColor)
-                .putInt("adaptive_clock_color", adaptiveColor)
                 .putBoolean("depth_effect_enabled", isDepthEnabled)
                 .putFloat("clock_offset_x", offsetX)
                 .putFloat("clock_offset_y", offsetY)
                 .apply()
         }
 
-        val root = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.BLACK)
-        }
-
-        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-            val sysBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(0, sysBars.top, 0, sysBars.bottom)
-            insets
-        }
-
-        val topBarClosed = RelativeLayout(this@MainActivity).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            setPadding(dp(20), dp(14), dp(20), dp(8))
-        }
-
-        val btnExitPreview = TextView(this@MainActivity).apply {
-            text = "✕"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#24272E"))
-            }
-            layoutParams = RelativeLayout.LayoutParams(dp(42), dp(42)).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_START)
-                addRule(RelativeLayout.CENTER_VERTICAL)
-            }
-            setOnClickListener { dialog.dismiss() }
-        }
-
-        val tvPreviewHint = TextView(this@MainActivity).apply {
-            text = "Tap Clock to Customize"
-            textSize = 14f
-            setTextColor(Color.parseColor("#D0D4DC"))
-            layoutParams = RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                RelativeLayout.LayoutParams.WRAP_CONTENT
-            ).apply { addRule(RelativeLayout.CENTER_IN_PARENT) }
-        }
-
-        val btnConfirmClock = TextView(this@MainActivity).apply {
-            text = "✓"
-            textSize = 18f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#24272E"))
-            }
-            layoutParams = RelativeLayout.LayoutParams(dp(42), dp(42)).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_END)
-                addRule(RelativeLayout.CENTER_VERTICAL)
-            }
-            setOnClickListener {
-                saveTempPrefs()
-                prefs.edit().putBoolean("clock_enabled", true).apply()
-                updateToggleUI(true)
-                bgExecutor.execute { precomputeWallpaperCaches() }
-                dialog.dismiss()
-            }
-        }
-
-        topBarClosed.addView(btnExitPreview)
-        topBarClosed.addView(tvPreviewHint)
-        topBarClosed.addView(btnConfirmClock)
-        root.addView(topBarClosed)
-
-        val previewWrapper = FrameLayout(this@MainActivity).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.32f
-            )
-            setPadding(dp(32), dp(6), dp(32), dp(12))
-        }
-
-        var activeHandleBoxBottom = 0f
-        var isDraggingHandle = false
-        var isDraggingClockPos = false
-        var dragStartX = 0f
-        var dragStartY = 0f
-        var dragStartSize = currentCustomSize
-        var dragStartOffsetX = offsetX
-        var dragStartOffsetY = offsetY
-
-        val previewView = object : View(this@MainActivity) {
-            private val clipPath = Path()
-            private val rectF = RectF()
-            private val frameRect = RectF()
-            private val drawMatrix = Matrix()
-            private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            private val depthPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-            private val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.argb(225, 255, 255, 255)
-                style = Paint.Style.STROKE
-                strokeWidth = dp(2).toFloat()
-            }
-            private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.WHITE
-                style = Paint.Style.FILL
-            }
-            private val handleKnobPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = Color.parseColor("#1A73E8")
-                style = Paint.Style.FILL
-            }
-
-            override fun onDraw(canvas: Canvas) {
-                super.onDraw(canvas)
-                val vw = width.toFloat()
-                val vh = height.toFloat()
-                if (vw <= 0f || vh <= 0f) return
-
-                val targetRatio = 9f / 19.5f
-                val cardW: Float
-                val cardH: Float
-                if (vw / vh > targetRatio) {
-                    cardH = vh
-                    cardW = vh * targetRatio
-                } else {
-                    cardW = vw
-                    cardH = vw / targetRatio
-                }
-                val left = (vw - cardW) / 2f
-                val top = (vh - cardH) / 2f
-
-                rectF.set(left, top, left + cardW, top + cardH)
-                clipPath.reset()
-                clipPath.addRoundRect(rectF, dp(28).toFloat(), dp(28).toFloat(), Path.Direction.CW)
-
-                canvas.save()
-                canvas.clipPath(clipPath)
-
-                if (previewBmp != null) {
-                    val bw = previewBmp.width.toFloat()
-                    val bh = previewBmp.height.toFloat()
-                    val scale = maxOf(cardW / bw, cardH / bh)
-                    val dx = left + (cardW - bw * scale) / 2f
-                    val dy = top + (cardH - bh * scale) / 2f
-                    drawMatrix.reset()
-                    drawMatrix.setScale(scale, scale)
-                    drawMatrix.postTranslate(dx, dy)
-                    canvas.drawBitmap(previewBmp, drawMatrix, bgPaint)
-                } else {
-                    val grad = LinearGradient(
-                        left, top, left + cardW, top + cardH,
-                        intArrayOf(
-                            Color.parseColor("#29B6F6"),
-                            Color.parseColor("#0288D1"),
-                            Color.parseColor("#43A047")
-                        ),
-                        floatArrayOf(0f, 0.55f, 1f),
-                        Shader.TileMode.CLAMP
-                    )
-                    bgPaint.shader = grad
-                    canvas.drawRect(rectF, bgPaint)
-                    bgPaint.shader = null
-                }
-
-                canvas.save()
-                canvas.translate(left, top)
-                ClockDrawer.drawClock(canvas, prefs, cardW, cardH)
-
-                if (isDepthEnabled && previewDepthBmp != null) {
-                    val dw = previewDepthBmp.width.toFloat()
-                    val dh = previewDepthBmp.height.toFloat()
-                    val dScale = maxOf(cardW / dw, cardH / dh)
-                    val ddx = (cardW - dw * dScale) / 2f
-                    val ddy = (cardH - dh * dScale) / 2f
-                    drawMatrix.reset()
-                    drawMatrix.setScale(dScale, dScale)
-                    drawMatrix.postTranslate(ddx, ddy)
-                    canvas.drawBitmap(previewDepthBmp, drawMatrix, depthPaint)
-                }
-
-                if (isPanelOpen) {
-                    val boxTop = (cardH * 0.08f + cardH * offsetY).coerceIn(cardH * 0.04f, cardH * 0.52f)
-                    val baseSpan = if (currentMode == 1) cardH * 0.34f else cardH * 0.24f
-                    val dynamicBottom = (boxTop + baseSpan * effectiveSize())
-                        .coerceIn(boxTop + cardH * 0.14f, cardH * 0.88f)
-
-                    activeHandleBoxBottom = top + dynamicBottom
-
-                    frameRect.set(cardW * 0.06f, boxTop, cardW * 0.94f, dynamicBottom)
-                    canvas.drawRoundRect(frameRect, dp(16).toFloat(), dp(16).toFloat(), boxPaint)
-
-                    if (currentMode == 1) {
-                        val handleW = cardW * 0.24f
-                        val handleH = dp(6).toFloat()
-                        canvas.drawRoundRect(
-                            cardW * 0.5f - handleW / 2f, dynamicBottom - handleH / 2f,
-                            cardW * 0.5f + handleW / 2f, dynamicBottom + handleH / 2f,
-                            handleH, handleH, handlePaint
-                        )
-                        canvas.drawCircle(cardW * 0.5f, dynamicBottom, dp(6).toFloat(), handleKnobPaint)
-                    }
-                }
-                canvas.restore()
-                canvas.restore()
-            }
-        }
-
-        val sheet = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1.06f
-            )
-            background = GradientDrawable().apply {
-                setColor(Color.WHITE)
-                val r = dp(28).toFloat()
-                cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
-            }
-            setPadding(dp(18), dp(14), dp(18), dp(14))
-        }
-
-        val topBar = RelativeLayout(this@MainActivity).apply {
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-        }
-
-        val btnApplyClock = TextView(this@MainActivity).apply {
-            text = "Apply"
-            textSize = 13f
-            setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
-            setTextColor(Color.WHITE)
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1A73E8"))
-                cornerRadius = dp(16).toFloat()
-            }
-            setPadding(dp(14), dp(7), dp(14), dp(7))
-            layoutParams = RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                RelativeLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_START)
-                addRule(RelativeLayout.CENTER_VERTICAL)
-            }
-            setOnClickListener {
-                saveTempPrefs()
-                prefs.edit().putBoolean("clock_enabled", true).apply()
-                updateToggleUI(true)
-                bgExecutor.execute { precomputeWallpaperCaches() }
-                dialog.dismiss()
-            }
-        }
-
-        val modeSwitchBox = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            background = GradientDrawable().apply {
-                setColor(Color.parseColor("#F1F3F5"))
-                cornerRadius = dp(10).toFloat()
-            }
-            setPadding(dp(3), dp(3), dp(3), dp(3))
-            layoutParams = RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                RelativeLayout.LayoutParams.WRAP_CONTENT
-            ).apply { addRule(RelativeLayout.CENTER_IN_PARENT) }
-        }
-
-        val btnClassic = TextView(this@MainActivity).apply { text = "Classic"; textSize = 13f; setPadding(dp(16), dp(7), dp(16), dp(7)) }
-        val btnCustom = TextView(this@MainActivity).apply { text = "Custom"; textSize = 13f; setPadding(dp(16), dp(7), dp(16), dp(7)) }
-        modeSwitchBox.addView(btnClassic)
-        modeSwitchBox.addView(btnCustom)
-
-        val btnClose = TextView(this@MainActivity).apply {
-            text = "✕"
-            textSize = 18f
-            setTextColor(Color.parseColor("#333333"))
-            setPadding(dp(10), dp(4), dp(6), dp(4))
-            layoutParams = RelativeLayout.LayoutParams(
-                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                RelativeLayout.LayoutParams.WRAP_CONTENT
-            ).apply {
-                addRule(RelativeLayout.ALIGN_PARENT_END)
-                addRule(RelativeLayout.CENTER_VERTICAL)
-            }
-            setOnClickListener {
-                isPanelOpen = false
-                isHsvPickerOpen = false
-                sheet.visibility = View.GONE
-                topBarClosed.visibility = View.VISIBLE
-                previewView.invalidate()
-            }
-        }
-
-        topBar.addView(btnApplyClock)
-        topBar.addView(modeSwitchBox)
-        topBar.addView(btnClose)
-        sheet.addView(topBar)
-
-        val tabRow = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.HORIZONTAL
-            weightSum = 4f
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { setMargins(0, dp(12), 0, dp(10)) }
-        }
-
-        fun makeEvenTab(label: String): TextView = TextView(this@MainActivity).apply {
-            text = label
-            textSize = 13f
-            gravity = Gravity.CENTER
-            maxLines = 1
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-            setPadding(dp(2), dp(6), dp(2), dp(6))
-        }
-
-        val tabStyles = makeEvenTab("Styles")
-        val tabFonts = makeEvenTab("Fonts")
-        val tabColors = makeEvenTab("Colors")
-        val tabDepth = makeEvenTab("Depth Effect")
-        tabRow.addView(tabStyles)
-        tabRow.addView(tabFonts)
-        tabRow.addView(tabColors)
-        tabRow.addView(tabDepth)
-        sheet.addView(tabRow)
-
-        val contentHolder = LinearLayout(this@MainActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            )
-        }
-        sheet.addView(contentHolder)
-
-        fun buildStyleCard(idx: Int, isSelected: Boolean, isCustomMode: Boolean): LinearLayout {
-            return LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                background = GradientDrawable().apply {
-                    setColor(Color.parseColor("#F5F6F8"))
-                    cornerRadius = dp(16).toFloat()
-                    if (isSelected) setStroke(dp(2), Color.parseColor("#1A73E8"))
-                }
-                layoutParams = LinearLayout.LayoutParams(dp(106), dp(116)).apply {
-                    setMargins(0, 0, dp(12), 0)
-                }
-                setPadding(dp(8), dp(6), dp(8), dp(6))
-
-                val dateTv = TextView(this@MainActivity).apply {
-                    text = if (isCustomMode && idx == 2) "11/19\nThu" else "Thu, Nov 19"
-                    textSize = 8.5f
-                    setTextColor(Color.parseColor("#444444"))
-                    gravity = if (!isCustomMode && idx == 2) Gravity.START else Gravity.CENTER
-                }
-
-                val timeTv = TextView(this@MainActivity).apply {
-                    setTextColor(Color.BLACK)
-                    setTypeface(
-                        Typeface.create(if (isCustomMode) "sans-serif-condensed" else "sans-serif", Typeface.BOLD)
-                    )
-                    if (isCustomMode) textScaleX = 0.68f
-                    gravity = Gravity.CENTER
-                    when {
-                        !isCustomMode && idx == 0 -> { text = "4:37"; textSize = 22f }
-                        !isCustomMode && idx == 1 -> { text = "04\n37"; textSize = 20f; setLineSpacing(0f, 0.76f) }
-                        !isCustomMode && idx == 2 -> { text = "4:37"; textSize = 20f; gravity = Gravity.START }
-                        !isCustomMode && idx == 3 -> { text = "4:37  11/19"; textSize = 11.5f }
-                        isCustomMode && idx == 0 -> { text = "4:37"; textSize = 34f }
-                        isCustomMode && idx == 1 -> { text = "04\n37"; textSize = 26f; setLineSpacing(0f, 0.72f) }
-                        else -> { text = "0 4\n3 7"; textSize = 25f; setLineSpacing(0f, 0.72f) }
-                    }
-                }
-
-                if (!(!isCustomMode && idx == 3)) addView(dateTv)
-                addView(timeTv)
-            }
-        }
-
-        val mergedPresetColors = listOf(
-            Color.WHITE,
-            ClockDrawer.COLOR_ADAPTIVE,
-            Color.parseColor("#5C76B8"),
-            Color.parseColor("#4F815D"),
-            Color.parseColor("#6E50A6"),
-            Color.parseColor("#9C6D2E"),
-            Color.parseColor("#DE7076"),
-            Color.parseColor("#B59410"),
-            Color.parseColor("#689F38"),
-            Color.parseColor("#4285F4"),
-            Color.parseColor("#9575CD"),
-            Color.parseColor("#BA68C8"),
-            Color.parseColor("#FFCC80"),
-            Color.parseColor("#00ACC1"),
-            Color.parseColor("#FF7043"),
-            Color.BLACK,
-            ClockDrawer.COLOR_CUSTOM_WHEEL
-        )
-
         fun updateUI() {
-            val activePill = GradientDrawable().apply {
-                setColor(Color.parseColor("#DCEBFF"))
-                cornerRadius = dp(8).toFloat()
+            if (currentMode == 0) {
+                btnClassic.background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(14).toFloat()
+                }
+                btnClassic.setTextColor(Color.parseColor("#1A73E8"))
+                btnClassic.setTypeface(null, Typeface.BOLD)
+
+                btnCustom.background = null
+                btnCustom.setTextColor(Color.parseColor("#5F6368"))
+                btnCustom.setTypeface(null, Typeface.NORMAL)
+            } else {
+                btnCustom.background = GradientDrawable().apply {
+                    setColor(Color.WHITE)
+                    cornerRadius = dp(14).toFloat()
+                }
+                btnCustom.setTextColor(Color.parseColor("#1A73E8"))
+                btnCustom.setTypeface(null, Typeface.BOLD)
+
+                btnClassic.background = null
+                btnClassic.setTextColor(Color.parseColor("#5F6368"))
+                btnClassic.setTypeface(null, Typeface.NORMAL)
             }
-            btnClassic.background = if (currentMode == 0) activePill else null
-            btnClassic.setTextColor(if (currentMode == 0) Color.parseColor("#1A73E8") else Color.parseColor("#757575"))
-            btnClassic.setTypeface(null, if (currentMode == 0) Typeface.BOLD else Typeface.NORMAL)
 
-            btnCustom.background = if (currentMode == 1) activePill else null
-            btnCustom.setTextColor(if (currentMode == 1) Color.parseColor("#1A73E8") else Color.parseColor("#757575"))
-            btnCustom.setTypeface(null, if (currentMode == 1) Typeface.BOLD else Typeface.NORMAL)
-
-            listOf(tabStyles, tabFonts, tabColors, tabDepth).forEachIndexed { idx, tv ->
-                tv.setTextColor(if (idx == currentTab) Color.BLACK else Color.parseColor("#8A9099"))
-                tv.setTypeface(null, if (idx == currentTab) Typeface.BOLD else Typeface.NORMAL)
-                tv.background = if (idx == currentTab) {
-                    GradientDrawable().apply {
-                        setColor(Color.parseColor("#EEF3FC"))
-                        cornerRadius = dp(10).toFloat()
-                    }
-                } else null
+            val tabs = listOf(tabStyles, tabFonts, tabColors, tabDepth)
+            tabs.forEachIndexed { i, t ->
+                if (i == currentTab) {
+                    t.setTextColor(Color.BLACK)
+                    t.setTypeface(null, Typeface.BOLD)
+                } else {
+                    t.setTextColor(Color.parseColor("#70757A"))
+                    t.setTypeface(null, Typeface.NORMAL)
+                }
             }
 
             contentHolder.removeAllViews()
-            val hScroll = HorizontalScrollView(this@MainActivity).apply { isHorizontalScrollBarEnabled = false }
-            val row = LinearLayout(this@MainActivity).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(2), dp(4), dp(2), dp(4))
-            }
 
             when (currentTab) {
                 0 -> {
-                    val count = if (currentMode == 0) 4 else 3
-                    currentStyle = currentStyle.coerceIn(0, count - 1)
-                    for (idx in 0 until count) {
-                        val card = buildStyleCard(idx, currentStyle == idx, currentMode == 1)
-                        card.setOnClickListener {
-                            currentStyle = idx
-                            if (currentMode == 0 || currentStyle == 0) {
-                                offsetX = 0f
-                                offsetY = 0f
+                    val hScroll = HorizontalScrollView(this@MainActivity).apply {
+                        isHorizontalScrollBarEnabled = false
+                    }
+                    val row = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                        gravity = Gravity.CENTER_VERTICAL
+                    }
+
+                    val maxStyles = if (currentMode == 0) 4 else 3
+                    val styleNames = if (currentMode == 0) {
+                        listOf("Stacked", "Double Line", "Left Align", "Compact")
+                    } else {
+                        listOf("Origin Big", "Two Tier", "Offset Split")
+                    }
+
+                    for (s in 0 until maxStyles) {
+                        val card = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
+                            gravity = Gravity.CENTER
+                            val isSel = (s == currentStyle)
+                            background = GradientDrawable().apply {
+                                setColor(if (isSel) Color.parseColor("#E8F0FE") else Color.parseColor("#F8F9FA"))
+                                cornerRadius = dp(16).toFloat()
+                                if (isSel) setStroke(dp(2), Color.parseColor("#1A73E8"))
                             }
-                            saveTempPrefs()
-                            previewView.invalidate()
-                            updateUI()
+                            layoutParams = LinearLayout.LayoutParams(dp(96), dp(112)).apply {
+                                setMargins(0, 0, dp(10), 0)
+                            }
+                            setOnClickListener {
+                                currentStyle = s
+                                saveTempPrefs()
+                                previewView.invalidate()
+                                updateUI()
+                            }
                         }
+
+                        val lbl = TextView(this@MainActivity).apply {
+                            text = styleNames.getOrElse(s) { "Style $s" }
+                            textSize = 12f
+                            gravity = Gravity.CENTER
+                            setTextColor(if (s == currentStyle) Color.parseColor("#1A73E8") else Color.BLACK)
+                            setTypeface(null, if (s == currentStyle) Typeface.BOLD else Typeface.NORMAL)
+                        }
+                        card.addView(lbl)
                         row.addView(card)
                     }
                     hScroll.addView(row)
@@ -1383,296 +1593,260 @@ class MainActivity : AppCompatActivity() {
                 }
 
                 1 -> {
-                    val fontCount = 6
-                    for (idx in 0 until fontCount) {
-                        val cardW = dp(82)
-                        val cardH = dp(82)
-                        val card = object : View(this@MainActivity) {
-                            private val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                color = Color.BLACK
-                                textAlign = Paint.Align.CENTER
-                            }
-                            override fun onDraw(canvas: Canvas) {
-                                super.onDraw(canvas)
-                                p.textScaleX = if (currentMode == 1) 0.64f else 0.86f
-                                p.textSize = dp(28).toFloat()
-                                p.typeface = ClockDrawer.resolveTypeface(idx, currentWeight)
-                                if (currentWeight < 0.45f) {
-                                    p.style = Paint.Style.STROKE
-                                    p.strokeWidth = dpF(1.2f + (0.45f - currentWeight) * 2.2f)
-                                } else {
-                                    p.style = Paint.Style.FILL
-                                    p.strokeWidth = 0f
-                                }
-                                val yPos = height / 2f - (p.descent() + p.ascent()) / 2f
-                                canvas.drawText("10", width / 2f, yPos, p)
-                            }
-                        }.apply {
+                    val col = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.VERTICAL
+                    }
+
+                    val fontScroll = HorizontalScrollView(this@MainActivity).apply {
+                        isHorizontalScrollBarEnabled = false
+                    }
+                    val fontRow = LinearLayout(this@MainActivity).apply {
+                        orientation = LinearLayout.HORIZONTAL
+                    }
+
+                    val fontNames = listOf("Modern", "Slim", "Bold", "Serif", "Outline", "Round")
+                    for (f in 0..5) {
+                        val fCard = TextView(this@MainActivity).apply {
+                            text = fontNames[f]
+                            textSize = 13f
+                            gravity = Gravity.CENTER
+                            val isSel = (f == currentFont)
                             background = GradientDrawable().apply {
-                                setColor(Color.parseColor("#F5F6F8"))
-                                cornerRadius = dp(14).toFloat()
-                                if (currentFont == idx) setStroke(dp(2), Color.parseColor("#1A73E8"))
+                                setColor(if (isSel) Color.parseColor("#1A73E8") else Color.parseColor("#F1F3F4"))
+                                cornerRadius = dp(12).toFloat()
                             }
-                            layoutParams = LinearLayout.LayoutParams(cardW, cardH).apply {
-                                setMargins(0, 0, dp(10), 0)
-                            }
+                            setTextColor(if (isSel) Color.WHITE else Color.BLACK)
+                            setTypeface(ClockDrawer.resolveTypeface(f, currentWeight), if (isSel) Typeface.BOLD else Typeface.NORMAL)
+                            setPadding(dp(14), dp(8), dp(14), dp(8))
+                            layoutParams = LinearLayout.LayoutParams(
+                                LinearLayout.LayoutParams.WRAP_CONTENT,
+                                LinearLayout.LayoutParams.WRAP_CONTENT
+                            ).apply { setMargins(0, 0, dp(8), 0) }
                             setOnClickListener {
-                                currentFont = idx
+                                currentFont = f
                                 saveTempPrefs()
                                 previewView.invalidate()
                                 updateUI()
                             }
                         }
-                        row.addView(card)
+                        fontRow.addView(fCard)
                     }
-                    hScroll.addView(row)
-                    contentHolder.addView(hScroll)
+                    fontScroll.addView(fontRow)
+                    col.addView(fontScroll)
 
-                    val sliderRow = LinearLayout(this@MainActivity).apply {
+                    val weightRow = LinearLayout(this@MainActivity).apply {
                         orientation = LinearLayout.HORIZONTAL
                         gravity = Gravity.CENTER_VERTICAL
-                        setPadding(dp(6), dp(14), dp(6), 0)
+                        setPadding(0, dp(12), 0, 0)
                     }
-                    val thinLabel = TextView(this@MainActivity).apply {
-                        text = "A"
-                        textSize = 15f
-                        setTextColor(Color.parseColor("#757575"))
-                        typeface = Typeface.create("sans-serif-light", Typeface.NORMAL)
+
+                    val wLbl = TextView(this@MainActivity).apply {
+                        text = "Weight"
+                        textSize = 12f
+                        setTextColor(Color.parseColor("#5F6368"))
+                        layoutParams = LinearLayout.LayoutParams(dp(54), LinearLayout.LayoutParams.WRAP_CONTENT)
                     }
-                    val boldLabel = TextView(this@MainActivity).apply {
-                        text = "A"
-                        textSize = 17f
-                        setTextColor(Color.BLACK)
-                        typeface = Typeface.create("sans-serif-black", Typeface.BOLD)
-                    }
-                    val seek = SeekBar(this@MainActivity).apply {
-                        max = 75
-                        progress = ((currentWeight - 0.25f) * 100).toInt().coerceIn(0, 75)
-                        progressTintList = ColorStateList.valueOf(Color.parseColor("#1A73E8"))
-                        thumbTintList = ColorStateList.valueOf(Color.parseColor("#1A73E8"))
-                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                            setMargins(dp(12), 0, dp(12), 0)
-                        }
+
+                    val wSeek = SeekBar(this@MainActivity).apply {
+                        max = 100
+                        progress = ((currentWeight - 0.25f) / (1.0f - 0.25f) * 100).toInt().coerceIn(0, 100)
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                         setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                            override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                            override fun onProgressChanged(sb: SeekBar?, prog: Int, fromUser: Boolean) {
                                 if (fromUser) {
-                                    currentWeight = 0.25f + (p / 100f)
+                                    currentWeight = 0.25f + (prog / 100f) * 0.75f
                                     saveTempPrefs()
                                     previewView.invalidate()
-                                    for (i in 0 until row.childCount) {
-                                        row.getChildAt(i).invalidate()
-                                    }
                                 }
                             }
-                            override fun onStartTrackingTouch(s: SeekBar?) {}
-                            override fun onStopTrackingTouch(s: SeekBar?) {}
+                            override fun onStartTrackingTouch(sb: SeekBar?) {}
+                            override fun onStopTrackingTouch(sb: SeekBar?) {}
                         })
                     }
-                    sliderRow.addView(thinLabel)
-                    sliderRow.addView(seek)
-                    sliderRow.addView(boldLabel)
-                    contentHolder.addView(sliderRow)
+
+                    weightRow.addView(wLbl)
+                    weightRow.addView(wSeek)
+                    col.addView(weightRow)
+
+                    if (currentMode == 1) {
+                        val hint = TextView(this@MainActivity).apply {
+                            text = "Tip: Pinch on clock to resize & drag to reposition"
+                            textSize = 11.5f
+                            setTextColor(Color.parseColor("#1A73E8"))
+                            setPadding(0, dp(6), 0, 0)
+                        }
+                        col.addView(hint)
+                    }
+
+                    contentHolder.addView(col)
                 }
 
                 2 -> {
                     if (isHsvPickerOpen) {
-                        val initColor = if (currentColor == ClockDrawer.COLOR_ADAPTIVE) adaptiveColor else currentColor
-                        val hsv = FloatArray(3)
-                        Color.colorToHSV(initColor, hsv)
-                        if (initColor == Color.WHITE) {
-                            hsv[0] = 210f; hsv[1] = 0.65f; hsv[2] = 0.95f
+                        val pickerCol = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.VERTICAL
                         }
 
-                        val headerRow = RelativeLayout(this@MainActivity).apply {
-                            layoutParams = LinearLayout.LayoutParams(
-                                LinearLayout.LayoutParams.MATCH_PARENT,
-                                LinearLayout.LayoutParams.WRAP_CONTENT
-                            )
-                            setPadding(dp(4), dp(0), dp(4), dp(6))
+                        val hRow = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
                         }
-
-                        val pickerTitle = TextView(this@MainActivity).apply {
-                            text = "Customize color"
-                            textSize = 14f
-                            setTextColor(Color.BLACK)
-                            setTypeface(null, Typeface.BOLD)
-                            layoutParams = RelativeLayout.LayoutParams(
-                                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                                RelativeLayout.LayoutParams.WRAP_CONTENT
-                            ).apply { addRule(RelativeLayout.CENTER_VERTICAL) }
+                        val hLbl = TextView(this@MainActivity).apply {
+                            text = "Hue"
+                            textSize = 11.5f
+                            layoutParams = LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.WRAP_CONTENT)
                         }
+                        val hSeek = SeekBar(this@MainActivity).apply {
+                            max = 360
+                            progress = pickerHue.toInt()
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                                override fun onProgressChanged(sb: SeekBar?, prog: Int, fromUser: Boolean) {
+                                    if (fromUser) {
+                                        pickerHue = prog.toFloat()
+                                        currentColor = Color.HSVToColor(floatArrayOf(pickerHue, pickerSat, pickerVal))
+                                        saveTempPrefs()
+                                        previewView.invalidate()
+                                    }
+                                }
+                                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                                override fun onStopTrackingTouch(sb: SeekBar?) {}
+                            })
+                        }
+                        hRow.addView(hLbl)
+                        hRow.addView(hSeek)
 
-                        val btnBackColors = TextView(this@MainActivity).apply {
-                            text = "Done"
-                            textSize = 13f
+                        val bRow = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
+                            setPadding(0, dp(6), 0, 0)
+                        }
+                        val bLbl = TextView(this@MainActivity).apply {
+                            text = "Light"
+                            textSize = 11.5f
+                            layoutParams = LinearLayout.LayoutParams(dp(44), LinearLayout.LayoutParams.WRAP_CONTENT)
+                        }
+                        val bSeek = SeekBar(this@MainActivity).apply {
+                            max = 100
+                            progress = (pickerVal * 100).toInt()
+                            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                                override fun onProgressChanged(sb: SeekBar?, prog: Int, fromUser: Boolean) {
+                                    if (fromUser) {
+                                        pickerVal = (prog / 100f).coerceIn(0.2f, 1f)
+                                        currentColor = Color.HSVToColor(floatArrayOf(pickerHue, pickerSat, pickerVal))
+                                        saveTempPrefs()
+                                        previewView.invalidate()
+                                    }
+                                }
+                                override fun onStartTrackingTouch(sb: SeekBar?) {}
+                                override fun onStopTrackingTouch(sb: SeekBar?) {}
+                            })
+                        }
+                        bRow.addView(bLbl)
+                        bRow.addView(bSeek)
+
+                        val donePick = TextView(this@MainActivity).apply {
+                            text = "Back to Presets"
+                            textSize = 12f
                             setTextColor(Color.parseColor("#1A73E8"))
                             setTypeface(null, Typeface.BOLD)
-                            setPadding(dp(10), dp(2), dp(6), dp(2))
-                            layoutParams = RelativeLayout.LayoutParams(
-                                RelativeLayout.LayoutParams.WRAP_CONTENT,
-                                RelativeLayout.LayoutParams.WRAP_CONTENT
-                            ).apply {
-                                addRule(RelativeLayout.ALIGN_PARENT_END)
-                                addRule(RelativeLayout.CENTER_VERTICAL)
-                            }
+                            setPadding(0, dp(8), 0, 0)
                             setOnClickListener {
                                 isHsvPickerOpen = false
                                 updateUI()
                             }
                         }
 
-                        headerRow.addView(pickerTitle)
-                        headerRow.addView(btnBackColors)
-                        contentHolder.addView(headerRow)
-
-                        fun applyHsv() {
-                            currentColor = Color.HSVToColor(hsv)
-                            saveTempPrefs()
-                            previewView.invalidate()
+                        pickerCol.addView(hRow)
+                        pickerCol.addView(bRow)
+                        pickerCol.addView(donePick)
+                        contentHolder.addView(pickerCol)
+                    } else {
+                        val hScroll = HorizontalScrollView(this@MainActivity).apply {
+                            isHorizontalScrollBarEnabled = false
+                        }
+                        val row = LinearLayout(this@MainActivity).apply {
+                            orientation = LinearLayout.HORIZONTAL
+                            gravity = Gravity.CENTER_VERTICAL
                         }
 
-                        fun buildHsvSlider(label: String, maxVal: Int, initProgress: Int, gradColors: IntArray, onSlide: (Int) -> Unit): LinearLayout {
-                            return LinearLayout(this@MainActivity).apply {
-                                orientation = LinearLayout.VERTICAL
-                                setPadding(dp(4), dp(2), dp(4), dp(4))
-
-                                val lbl = TextView(this@MainActivity).apply {
-                                    text = label
-                                    textSize = 11.5f
-                                    setTextColor(Color.parseColor("#5F6368"))
-                                }
-
-                                val sb = SeekBar(this@MainActivity).apply {
-                                    max = maxVal
-                                    progress = initProgress
-                                    progressDrawable = GradientDrawable(
-                                        GradientDrawable.Orientation.LEFT_RIGHT,
-                                        gradColors
-                                    ).apply {
-                                        cornerRadius = dp(8).toFloat()
-                                    }
-                                    thumbTintList = ColorStateList.valueOf(Color.parseColor("#1A73E8"))
-                                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                                        override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
-                                            if (fromUser) onSlide(p)
-                                        }
-                                        override fun onStartTrackingTouch(s: SeekBar?) {}
-                                        override fun onStopTrackingTouch(s: SeekBar?) {}
-                                    })
-                                }
-
-                                addView(lbl)
-                                addView(sb)
+                        val adaptiveCircle = FrameLayout(this@MainActivity).apply {
+                            val isSel = (currentColor == ClockDrawer.COLOR_ADAPTIVE)
+                            background = GradientDrawable().apply {
+                                shape = GradientDrawable.OVAL
+                                setColor(adaptiveCol)
+                                if (isSel) setStroke(dp(3), Color.parseColor("#1A73E8"))
+                            }
+                            layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply {
+                                setMargins(0, 0, dp(12), 0)
+                            }
+                            val tag = TextView(this@MainActivity).apply {
+                                text = "A"
+                                textSize = 13f
+                                setTextColor(if (isLightColor(adaptiveCol)) Color.BLACK else Color.WHITE)
+                                setTypeface(null, Typeface.BOLD)
+                                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER)
+                            }
+                            addView(tag)
+                            setOnClickListener {
+                                currentColor = ClockDrawer.COLOR_ADAPTIVE
+                                saveTempPrefs()
+                                previewView.invalidate()
+                                updateUI()
                             }
                         }
+                        row.addView(adaptiveCircle)
 
-                        contentHolder.addView(
-                            buildHsvSlider(
-                                "Hue", 360, hsv[0].toInt(),
-                                intArrayOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED)
-                            ) { p -> hsv[0] = p.toFloat(); applyHsv() }
+                        val presets = listOf(
+                            Color.WHITE,
+                            Color.parseColor("#111111"),
+                            Color.parseColor("#FFD54F"),
+                            Color.parseColor("#FF7043"),
+                            Color.parseColor("#E91E63"),
+                            Color.parseColor("#AB47BC"),
+                            Color.parseColor("#42A5F5"),
+                            Color.parseColor("#26A69A")
                         )
-                        contentHolder.addView(
-                            buildHsvSlider(
-                                "Saturation", 100, (hsv[1] * 100).toInt(),
-                                intArrayOf(Color.WHITE, Color.HSVToColor(floatArrayOf(hsv[0], 1f, 1f)))
-                            ) { p -> hsv[1] = p / 100f; applyHsv() }
-                        )
-                        contentHolder.addView(
-                            buildHsvSlider(
-                                "Brightness", 100, (hsv[2] * 100).toInt(),
-                                intArrayOf(Color.BLACK, Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f)))
-                            ) { p -> hsv[2] = p / 100f; applyHsv() }
-                        )
-                    } else {
-                        val isCustomHsvSelected = mergedPresetColors.none {
-                            it != ClockDrawer.COLOR_CUSTOM_WHEEL && it == currentColor
-                        }
 
-                        mergedPresetColors.forEach { col ->
-                            val swatch = object : View(this@MainActivity) {
-                                private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-                                private val ringP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                    style = Paint.Style.STROKE
-                                    strokeWidth = dp(2).toFloat()
-                                    color = Color.parseColor("#1A73E8")
+                        for (colVal in presets) {
+                            val isSel = (currentColor == colVal)
+                            val dot = View(this@MainActivity).apply {
+                                background = GradientDrawable().apply {
+                                    shape = GradientDrawable.OVAL
+                                    setColor(colVal)
+                                    if (isSel) setStroke(dp(3), Color.parseColor("#1A73E8"))
+                                    else if (colVal == Color.WHITE) setStroke(dp(1), Color.LTGRAY)
                                 }
-                                private val textP = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                                    textAlign = Paint.Align.CENTER
-                                    textSize = dp(10).toFloat()
-                                    typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
-                                }
-
-                                override fun onDraw(canvas: Canvas) {
-                                    super.onDraw(canvas)
-                                    val cx = width / 2f
-                                    val cy = height / 2f
-                                    val r = width * 0.38f
-
-                                    when (col) {
-                                        Color.WHITE -> {
-                                            p.color = Color.WHITE
-                                            canvas.drawCircle(cx, cy, r, p)
-                                            p.style = Paint.Style.STROKE
-                                            p.strokeWidth = dp(1).toFloat()
-                                            p.color = Color.parseColor("#BDBDBD")
-                                            canvas.drawCircle(cx, cy, r, p)
-                                            p.style = Paint.Style.FILL
-                                        }
-                                        ClockDrawer.COLOR_ADAPTIVE -> {
-                                            p.color = adaptiveColor
-                                            canvas.drawCircle(cx, cy, r, p)
-                                            p.style = Paint.Style.STROKE
-                                            p.strokeWidth = dp(1).toFloat()
-                                            p.color = Color.parseColor("#90A4AE")
-                                            canvas.drawCircle(cx, cy, r, p)
-                                            p.style = Paint.Style.FILL
-                                            textP.color = if (isLightColor(adaptiveColor)) Color.BLACK else Color.WHITE
-                                            val yPos = cy - (textP.descent() + textP.ascent()) / 2f
-                                            canvas.drawText("A", cx, yPos, textP)
-                                        }
-                                        ClockDrawer.COLOR_CUSTOM_WHEEL -> {
-                                            p.shader = SweepGradient(
-                                                cx, cy,
-                                                intArrayOf(Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED),
-                                                null
-                                            )
-                                            canvas.drawCircle(cx, cy, r, p)
-                                            p.shader = null
-                                        }
-                                        else -> {
-                                            p.color = col
-                                            canvas.drawCircle(cx, cy, r, p)
-                                        }
-                                    }
-
-                                    val selected = if (col == ClockDrawer.COLOR_CUSTOM_WHEEL) {
-                                        isCustomHsvSelected
-                                    } else {
-                                        currentColor == col
-                                    }
-                                    if (selected) {
-                                        canvas.drawCircle(cx, cy, width * 0.46f, ringP)
-                                    }
-                                }
-                            }.apply {
-                                layoutParams = LinearLayout.LayoutParams(dp(48), dp(48)).apply {
-                                    setMargins(0, dp(10), dp(12), dp(10))
+                                layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+                                    setMargins(0, 0, dp(10), 0)
                                 }
                                 setOnClickListener {
-                                    if (col == ClockDrawer.COLOR_CUSTOM_WHEEL) {
-                                        isHsvPickerOpen = true
-                                        updateUI()
-                                    } else {
-                                        currentColor = col
-                                        saveTempPrefs()
-                                        previewView.invalidate()
-                                        updateUI()
-                                    }
+                                    currentColor = colVal
+                                    saveTempPrefs()
+                                    previewView.invalidate()
+                                    updateUI()
                                 }
                             }
-                            row.addView(swatch)
+                            row.addView(dot)
                         }
+
+                        val wheelBtn = TextView(this@MainActivity).apply {
+                            text = "Custom"
+                            textSize = 12f
+                            gravity = Gravity.CENTER
+                            background = GradientDrawable().apply {
+                                setColor(Color.parseColor("#F1F3F4"))
+                                cornerRadius = dp(14).toFloat()
+                            }
+                            setPadding(dp(14), dp(10), dp(14), dp(10))
+                            setOnClickListener {
+                                isHsvPickerOpen = true
+                                updateUI()
+                            }
+                        }
+                        row.addView(wheelBtn)
+
                         hScroll.addView(row)
                         contentHolder.addView(hScroll)
                     }
@@ -1761,7 +1935,7 @@ class MainActivity : AppCompatActivity() {
                     if (isPanelOpen && currentMode == 1 && currentStyle >= 1) {
                         isDraggingClockPos = true
                         dragStartX = event.x
-                        dragStartY = event.y
+                        dragStartYPos = event.y
                         dragStartOffsetX = offsetX
                         dragStartOffsetY = offsetY
                         return@setOnTouchListener true
@@ -1777,7 +1951,7 @@ class MainActivity : AppCompatActivity() {
                     }
                     if (isDraggingClockPos && w > 0f && h > 0f) {
                         val dxRatio = (event.x - dragStartX) / w
-                        val dyRatio = (event.y - dragStartY) / h
+                        val dyRatio = (event.y - dragStartYPos) / h
                         offsetX = (dragStartOffsetX + dxRatio).coerceIn(-0.28f, 0.28f)
                         offsetY = (dragStartOffsetY + dyRatio).coerceIn(-0.08f, 0.36f)
                         saveTempPrefs()
