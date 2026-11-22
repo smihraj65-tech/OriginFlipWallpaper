@@ -1,7 +1,6 @@
 package com.origin.flip
 
 import android.app.KeyguardManager
-import android.app.WallpaperManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -27,6 +26,7 @@ class FlipWallpaperService : WallpaperService() {
         @Volatile var cachedBitmaps = mutableListOf<Bitmap>()
         @Volatile var cachedDepths = mutableListOf<Bitmap?>()
         @Volatile var cachedTimestamp = 0L
+        @Volatile var homeStaticBitmap: Bitmap? = null
     }
 
     override fun onCreateEngine(): Engine = FlipEngine()
@@ -58,8 +58,6 @@ class FlipWallpaperService : WallpaperService() {
         private var isDeviceLocked = true
         private val bitmaps = mutableListOf<Bitmap>()
         private val depthCutouts = mutableListOf<Bitmap?>()
-        private var fallbackBitmap: Bitmap? = null
-        private var systemWallpaperBitmap: Bitmap? = null
 
         private var centerRoll: Float? = null
         private var targetProgress = 0f
@@ -108,6 +106,11 @@ class FlipWallpaperService : WallpaperService() {
             super.onSurfaceCreated(holder)
             isDeviceLocked = keyguardManager.isKeyguardLocked
             loadImagesFast()
+            drawFrame()
+        }
+
+        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            super.onSurfaceChanged(holder, format, width, height)
             drawFrame()
         }
 
@@ -172,89 +175,43 @@ class FlipWallpaperService : WallpaperService() {
             } catch (_: Exception) {}
             bitmaps.clear()
             depthCutouts.clear()
-            fallbackBitmap?.recycle()
-            fallbackBitmap = null
-            systemWallpaperBitmap?.recycle()
-            systemWallpaperBitmap = null
         }
 
-        private fun getSystemWallpaperBitmap(w: Int, h: Int): Bitmap {
-            val existing = systemWallpaperBitmap
+        private fun getHomeStaticBitmap(w: Int, h: Int): Bitmap {
+            val existing = homeStaticBitmap
             if (existing != null && !existing.isRecycled && existing.width == w && existing.height == h) {
                 return existing
             }
             existing?.recycle()
 
-            // 1. Check saved system wallpaper file
-            val sysFile = File(filesDir, "sys_wallpaper.jpg")
-            if (sysFile.exists()) {
+            // 1. Custom photo set by user in app for Home Screen
+            val customFile = File(filesDir, "home_static_wp.jpg")
+            if (customFile.exists()) {
                 try {
-                    val bmp = BitmapFactory.decodeFile(sysFile.absolutePath)
+                    val opts = BitmapFactory.Options().apply {
+                        inPreferredConfig = Bitmap.Config.RGB_565
+                    }
+                    val bmp = BitmapFactory.decodeFile(customFile.absolutePath, opts)
                     if (bmp != null) {
-                        val scaled = if (bmp.width != w || bmp.height != h) {
-                            val s = Bitmap.createScaledBitmap(bmp, w, h, true)
-                            bmp.recycle()
-                            s
-                        } else {
-                            bmp
-                        }
-                        systemWallpaperBitmap = scaled
-                        return scaled
+                        homeStaticBitmap = bmp
+                        return bmp
                     }
                 } catch (_: Exception) {}
             }
 
-            // 2. Direct WallpaperManager fallback
-            try {
-                val wm = WallpaperManager.getInstance(applicationContext)
-                val d = wm.drawable
-                if (d != null) {
-                    val bw = w.coerceAtLeast(360)
-                    val bh = h.coerceAtLeast(640)
-                    val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
-                    val c = Canvas(bmp)
-                    d.setBounds(0, 0, bw, bh)
-                    d.draw(c)
-                    systemWallpaperBitmap = bmp
-                    return bmp
-                }
-            } catch (_: Exception) {}
-
-            return ensureFallbackBitmap(w, h)
-        }
-
-        private fun ensureFallbackBitmap(w: Int, h: Int): Bitmap {
-            val existing = fallbackBitmap
-            if (existing != null && existing.width == w.coerceAtLeast(1) && existing.height == h.coerceAtLeast(1)) {
-                return existing
+            // 2. First card photo from app (clean static image)
+            val firstCard = bitmaps.firstOrNull() ?: cachedBitmaps.firstOrNull()
+            if (firstCard != null && !firstCard.isRecycled) {
+                return firstCard
             }
-            existing?.recycle()
+
+            // 3. Fallback clean deep dark background (NO BLUE CIRCLES)
             val bw = w.coerceAtLeast(360)
             val bh = h.coerceAtLeast(640)
-            val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565)
             val c = Canvas(bmp)
-            val p = Paint(Paint.ANTI_ALIAS_FLAG)
-
-            p.shader = LinearGradient(
-                0f, 0f, bw.toFloat(), bh.toFloat(),
-                intArrayOf(
-                    Color.parseColor("#0B1026"),
-                    Color.parseColor("#1D2B64"),
-                    Color.parseColor("#1565C0"),
-                    Color.parseColor("#0A1A2F")
-                ),
-                floatArrayOf(0f, 0.35f, 0.72f, 1f),
-                Shader.TileMode.CLAMP
-            )
-            c.drawRect(0f, 0f, bw.toFloat(), bh.toFloat(), p)
-            p.shader = null
-
-            p.color = Color.argb(42, 255, 255, 255)
-            c.drawCircle(bw * 0.75f, bh * 0.25f, bw * 0.42f, p)
-            p.color = Color.argb(28, 41, 182, 246)
-            c.drawCircle(bw * 0.22f, bh * 0.72f, bw * 0.48f, p)
-
-            fallbackBitmap = bmp
+            c.drawColor(Color.parseColor("#111827"))
+            homeStaticBitmap = bmp
             return bmp
         }
 
@@ -395,15 +352,20 @@ class FlipWallpaperService : WallpaperService() {
                 canvas = holder.lockCanvas() ?: return
                 val w = canvas.width
                 val h = canvas.height
+                if (w <= 0 || h <= 0) return
                 fullScreenRect.set(0f, 0f, w.toFloat(), h.toFloat())
 
                 val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
                 val isPaused = prefs.getBoolean("wallpaper_paused", false)
 
+                if (bitmaps.isEmpty()) {
+                    loadImagesFast()
+                }
+
                 if (bitmaps.isEmpty() || isPaused) {
-                    val fallback = ensureFallbackBitmap(w, h)
+                    val staticFallback = getHomeStaticBitmap(w, h)
                     paint.alpha = 255
-                    canvas.drawBitmap(fallback, null, fullScreenRect, paint)
+                    canvas.drawBitmap(staticFallback, null, fullScreenRect, paint)
                     if (!isPaused && prefs.getBoolean("clock_enabled", false)) {
                         val fallbackAdaptive = prefs.getInt("adaptive_clock_color", Color.WHITE)
                         ClockDrawer.drawClock(canvas, prefs, w.toFloat(), h.toFloat(), fallbackAdaptive)
@@ -415,18 +377,19 @@ class FlipWallpaperService : WallpaperService() {
                 val applyMode = prefs.getString("apply_mode", "both") ?: "both"
                 val isLocked = isDeviceLocked || keyguardManager.isKeyguardLocked
 
+                // In preview: ALWAYS show Flip Wallpaper instantly!
                 val shouldShowFlip = isPreview || when (applyMode) {
                     "lock_only" -> isLocked
                     "home_only" -> !isLocked
                     else -> true // "both"
                 }
 
-                // Agar is screen par flip nahi chalana to Phone ka ORIGINAL SYSTEM WALLPAPER dikhao!
+                // Agar is screen par flip nahi chalana to Home Screen static wallpaper dikhao!
                 if (!shouldShowFlip) {
-                    val sysWallpaper = getSystemWallpaperBitmap(w, h)
+                    val homeBmp = getHomeStaticBitmap(w, h)
                     paint.alpha = 255
-                    canvas.drawBitmap(sysWallpaper, null, fullScreenRect, paint)
-                    return // Clean system wallpaper, no app photo, no clock!
+                    canvas.drawBitmap(homeBmp, null, fullScreenRect, paint)
+                    return // Clean static wallpaper, no flip, no clock!
                 }
 
                 val adaptiveColors = parseAdaptiveColors(prefs)

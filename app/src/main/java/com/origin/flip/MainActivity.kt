@@ -1,7 +1,6 @@
 package com.origin.flip
 
 import android.app.Dialog
-import android.app.WallpaperManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -11,7 +10,6 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.Process
 import android.util.DisplayMetrics
 import android.view.Gravity
 import android.view.MotionEvent
@@ -38,7 +36,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var applyTogglePill: FrameLayout
     private lateinit var applyToggleText: TextView
     private lateinit var applyToggleKnob: View
-    private lateinit var applySubtitle: TextView
     private lateinit var arrowView: TextView
 
     // EXPANDABLE TARGET SCREENS
@@ -49,6 +46,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homePill: FrameLayout
     private lateinit var homePillText: TextView
     private lateinit var homePillKnob: View
+    private lateinit var homeWpStatusText: TextView
     private var isScreensPanelOpen = false
 
     private lateinit var togglePill: FrameLayout
@@ -66,14 +64,41 @@ class MainActivity : AppCompatActivity() {
         appendSelectedImages(uris)
     }
 
+    private val pickHomeWallpaper = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri == null) return@registerForActivityResult
+        bgExecutor.execute {
+            try {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    val (screenW, screenH) = getRealScreenSize()
+                    val raw = BitmapFactory.decodeStream(input)
+                    if (raw != null) {
+                        val scaled = centerCropBitmap(raw, screenW, screenH)
+                        val target = File(filesDir, "home_static_wp.jpg")
+                        FileOutputStream(target).use { out ->
+                            scaled.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                        }
+                        raw.recycle()
+                        scaled.recycle()
+                        FlipWallpaperService.homeStaticBitmap?.recycle()
+                        FlipWallpaperService.homeStaticBitmap = null
+                    }
+                }
+                runOnUiThread {
+                    Toast.makeText(this@MainActivity, "Home Screen Wallpaper Updated!", Toast.LENGTH_SHORT).show()
+                    updateHomeWpStatusUI()
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
     private fun dpF(v: Float): Float = v * resources.displayMetrics.density
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         supportActionBar?.hide()
-
-        captureSystemWallpaper()
 
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
 
@@ -114,19 +139,29 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(glowLayer)
 
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            setPadding(dp(20), dp(44), dp(20), dp(32))
+        // SMOOTH VERTICAL SCROLL VIEW FOR ENTIRE SCREEN
+        val vScrollView = ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
             layoutParams = FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT
             )
         }
 
-        ViewCompat.setOnApplyWindowInsetsListener(content) { v, insets ->
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(20), dp(44), dp(20), dp(32))
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+
+        ViewCompat.setOnApplyWindowInsetsListener(vScrollView) { _, insets ->
             val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
-            v.setPadding(dp(20), statusBars.top + dp(12), dp(20), dp(24))
+            content.setPadding(dp(20), statusBars.top + dp(12), dp(20), dp(36))
             insets
         }
 
@@ -218,13 +253,13 @@ class MainActivity : AppCompatActivity() {
             ).apply {
                 cornerRadius = dp(24).toFloat()
             }
-            setPadding(dp(18), dp(12), dp(16), dp(12))
+            setPadding(dp(18), dp(14), dp(16), dp(14))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(76)
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(72)
             )
         }
 
-        // Left Click Section: Arrow + Title + Subtitle
+        // Left Click Section: Arrow + Title (NO FARZI SUBTITLE TEXT!)
         val applyLeftSection = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -235,43 +270,32 @@ class MainActivity : AppCompatActivity() {
 
         arrowView = TextView(this).apply {
             text = "▼"
-            textSize = 15f
+            textSize = 16f
             setTextColor(Color.WHITE)
             setPadding(0, 0, dp(12), 0)
         }
 
-        val applyTextCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        }
-
         val applyTitle = TextView(this).apply {
             text = "Apply Origin Flip Wallpaper"
-            textSize = 16.5f
+            textSize = 16f
             setTextColor(Color.WHITE)
             setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
         }
-
-        applySubtitle = TextView(this).apply {
-            textSize = 12f
-            setTextColor(Color.parseColor("#E0F2FE"))
-            setPadding(0, dp(2), 0, 0)
-        }
-
-        applyTextCol.addView(applyTitle)
-        applyTextCol.addView(applySubtitle)
 
         applyLeftSection.addView(arrowView)
-        applyLeftSection.addView(applyTextCol)
+        applyLeftSection.addView(applyTitle)
 
-        // Arrow toggles options dropdown
+        // Arrow toggles dropdown
         arrowView.setOnClickListener {
             toggleScreensDropdown()
         }
 
         // Tapping card title applies directly with NO POPUP!
-        applyTextCol.setOnClickListener {
+        applyTitle.setOnClickListener {
             applyWallpaperDirectly()
         }
 
@@ -324,7 +348,6 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this@MainActivity, "select minimum two photo", Toast.LENGTH_SHORT).show()
                     return@setOnClickListener
                 }
-                captureSystemWallpaper()
                 prefs.edit()
                     .putBoolean("flip_toggle_active", true)
                     .putBoolean("wallpaper_paused", false)
@@ -347,7 +370,7 @@ class MainActivity : AppCompatActivity() {
                 cornerRadius = dp(20).toFloat()
                 setStroke(dp(1), Color.parseColor("#26354A"))
             }
-            setPadding(dp(18), dp(14), dp(18), dp(14))
+            setPadding(dp(18), dp(16), dp(18), dp(16))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -429,7 +452,6 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean("apply_lock_screen", newLock).apply()
             updateTargetMode()
             updateLockPillUI(newLock)
-            updateApplySubtitle()
             updateFooterText()
         }
 
@@ -439,7 +461,7 @@ class MainActivity : AppCompatActivity() {
 
         val rowDivider = View(this).apply {
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
-                setMargins(0, dp(6), 0, dp(6))
+                setMargins(0, dp(8), 0, dp(8))
             }
             setBackgroundColor(Color.parseColor("#26354A"))
         }
@@ -449,7 +471,7 @@ class MainActivity : AppCompatActivity() {
         val homeRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(6), 0, dp(4))
+            setPadding(0, dp(4), 0, dp(4))
         }
 
         val homeTextCol = LinearLayout(this).apply {
@@ -510,13 +532,62 @@ class MainActivity : AppCompatActivity() {
             prefs.edit().putBoolean("apply_home_screen", newHome).apply()
             updateTargetMode()
             updateHomePillUI(newHome)
-            updateApplySubtitle()
             updateFooterText()
         }
 
         homeRow.addView(homeTextCol)
         homeRow.addView(homePill)
         expandScreensPanel.addView(homeRow)
+
+        // CHOOSE CUSTOM HOME SCREEN WALLPAPER BUTTON
+        val homeWpCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#1E293B"))
+                cornerRadius = dp(14).toFloat()
+            }
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { setMargins(0, dp(10), 0, 0) }
+            setOnClickListener {
+                pickHomeWallpaper.launch("image/*")
+            }
+        }
+
+        val homeWpBtnRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val homeWpBtnTitle = TextView(this).apply {
+            text = "🖼️ Choose Home Wallpaper (From Gallery)"
+            textSize = 12.5f
+            setTextColor(Color.parseColor("#60A5FA"))
+            setTypeface(Typeface.DEFAULT_BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val homeWpArrow = TextView(this).apply {
+            text = "›"
+            textSize = 18f
+            setTextColor(Color.parseColor("#60A5FA"))
+        }
+
+        homeWpBtnRow.addView(homeWpBtnTitle)
+        homeWpBtnRow.addView(homeWpArrow)
+
+        homeWpStatusText = TextView(this).apply {
+            textSize = 11f
+            setTextColor(Color.parseColor("#94A3B8"))
+            setPadding(0, dp(2), 0, 0)
+        }
+        updateHomeWpStatusUI()
+
+        homeWpCard.addView(homeWpBtnRow)
+        homeWpCard.addView(homeWpStatusText)
+        expandScreensPanel.addView(homeWpCard)
 
         applyCardContainer.addView(expandScreensPanel)
 
@@ -604,13 +675,13 @@ class MainActivity : AppCompatActivity() {
         val homeActive = prefs.getBoolean("apply_home_screen", true)
         updateLockPillUI(lockActive)
         updateHomePillUI(homeActive)
-        updateApplySubtitle()
 
         footerStatus = TextView(this).apply {
             text = "Active  •  OriginOS Seamless Flip  •  Ready to apply"
             textSize = 13f
             setTextColor(Color.parseColor("#4FC3F7"))
             gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(24))
         }
 
         refreshCardsStrip()
@@ -623,13 +694,13 @@ class MainActivity : AppCompatActivity() {
         content.addView(btnCustomizeCard)
         content.addView(footerStatus)
 
-        root.addView(content)
+        vScrollView.addView(content)
+        root.addView(vScrollView)
         setContentView(root)
     }
 
     override fun onResume() {
         super.onResume()
-        captureSystemWallpaper()
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
         if (::togglePill.isInitialized) {
             updateToggleUI(prefs.getBoolean("clock_enabled", false))
@@ -643,8 +714,18 @@ class MainActivity : AppCompatActivity() {
         if (::homePill.isInitialized) {
             updateHomePillUI(prefs.getBoolean("apply_home_screen", true))
         }
-        updateApplySubtitle()
+        updateHomeWpStatusUI()
         updateFooterText()
+    }
+
+    private fun updateHomeWpStatusUI() {
+        if (!::homeWpStatusText.isInitialized) return
+        val customFile = File(filesDir, "home_static_wp.jpg")
+        homeWpStatusText.text = if (customFile.exists()) {
+            "✓ Custom wallpaper active for Home Screen"
+        } else {
+            "Default: Uses first flip photo when unlocked"
+        }
     }
 
     private fun toggleScreensDropdown() {
@@ -666,20 +747,7 @@ class MainActivity : AppCompatActivity() {
         prefs.edit().putString("apply_mode", targetMode).apply()
     }
 
-    private fun updateApplySubtitle() {
-        if (!::applySubtitle.isInitialized) return
-        val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
-        val lockOn = prefs.getBoolean("apply_lock_screen", true)
-        val homeOn = prefs.getBoolean("apply_home_screen", true)
-        applySubtitle.text = when {
-            lockOn && homeOn -> "Lock (Pink) ON • Home (Green) ON"
-            lockOn -> "Lock Screen Only (Pink) ON"
-            homeOn -> "Home Screen Only (Green) ON"
-            else -> "Tap arrow to choose screens"
-        }
-    }
-
-    // DIRECT APPLY - NO POPUP DIALOG ASKED!
+    // DIRECT FAST APPLY - ZERO BLACK SCREEN, PRE-CACHED IN RAM
     private fun applyWallpaperDirectly() {
         val cardPhotos = getCardPhotos()
         if (cardPhotos.size < 2) {
@@ -687,7 +755,6 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        captureSystemWallpaper()
         updateTargetMode()
 
         val prefs = getSharedPreferences("origin_prefs", Context.MODE_PRIVATE)
@@ -699,44 +766,37 @@ class MainActivity : AppCompatActivity() {
         updateApplyToggleUI(true)
         updateFooterText()
 
-        launchLiveWallpaperChooser()
-    }
-
-    private fun captureSystemWallpaper() {
+        // Fast RAM Pre-Cache before launching chooser
         bgExecutor.execute {
             try {
-                val wm = WallpaperManager.getInstance(this@MainActivity)
-                val drawable = wm.drawable
-                if (drawable != null) {
-                    val dm = resources.displayMetrics
-                    val w = dm.widthPixels
-                    val h = dm.heightPixels
-                    val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    val c = Canvas(bmp)
-                    drawable.setBounds(0, 0, w, h)
-                    drawable.draw(c)
-                    val sysFile = File(filesDir, "sys_wallpaper.jpg")
-                    FileOutputStream(sysFile).use { out ->
-                        bmp.compress(Bitmap.CompressFormat.JPEG, 92, out)
+                if (FlipWallpaperService.cachedBitmaps.isEmpty()) {
+                    val opts = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.RGB_565 }
+                    val list = mutableListOf<Bitmap>()
+                    for (f in cardPhotos) {
+                        val b = BitmapFactory.decodeFile(f.absolutePath, opts)
+                        if (b != null) list.add(b)
                     }
-                    bmp.recycle()
+                    FlipWallpaperService.cachedBitmaps.clear()
+                    FlipWallpaperService.cachedBitmaps.addAll(list)
                 }
             } catch (_: Exception) {}
         }
+
+        launchLiveWallpaperChooser()
     }
 
     private fun launchLiveWallpaperChooser() {
         try {
-            val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+            val intent = Intent(android.app.WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
                 putExtra(
-                    WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                    android.app.WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
                     ComponentName(this@MainActivity, FlipWallpaperService::class.java)
                 )
             }
             startActivity(intent)
         } catch (_: Throwable) {
             try {
-                startActivity(Intent(WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
+                startActivity(Intent(android.app.WallpaperManager.ACTION_LIVE_WALLPAPER_CHOOSER))
             } catch (_: Throwable) {
                 startActivity(Intent(Intent.ACTION_SET_WALLPAPER))
             }
@@ -746,7 +806,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateLockPillUI(isActive: Boolean) {
         val knobParams = lockPillKnob.layoutParams as FrameLayout.LayoutParams
         if (isActive) {
-            // Origin Pink Gradient
             lockPill.background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.parseColor("#EC4899"), Color.parseColor("#F43F5E"))
@@ -775,7 +834,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateHomePillUI(isActive: Boolean) {
         val knobParams = homePillKnob.layoutParams as FrameLayout.LayoutParams
         if (isActive) {
-            // Origin Green Gradient
             homePill.background = GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 intArrayOf(Color.parseColor("#10B981"), Color.parseColor("#22C55E"))
